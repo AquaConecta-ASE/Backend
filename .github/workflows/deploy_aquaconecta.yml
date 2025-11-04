@@ -1,0 +1,73 @@
+name: Build and deploy JAR app to Azure Web App - aquaconecta
+
+on:
+  push:
+    branches:
+      - deploy
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java version
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'microsoft'
+
+      - name: Build with Maven
+        run: mvn clean install
+
+      - name: List built JAR files
+        run: ls -l target/*.jar || echo "No JAR file found"
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-app
+          path: target/*.jar
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: java-app
+          path: java-app
+
+      - name: List downloaded JAR files
+        run: ls -lh java-app/
+
+      - name: Move JAR to root for deployment
+        run: |
+          JAR_FILE=$(find java-app -name "*.jar" | head -n 1)
+          echo "Found JAR: $JAR_FILE"
+          mv "$JAR_FILE" app.jar
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_0FC96577DAE04F74A03E4DA7461CA2F1 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_9527C7181DA04E5A93FE5AEDF2464BF3 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_1880EABB18A14C5AA99FEFF45FF86CB1 }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'aquaconecta'
+          slot-name: 'Production'
+          package: app.jar
+

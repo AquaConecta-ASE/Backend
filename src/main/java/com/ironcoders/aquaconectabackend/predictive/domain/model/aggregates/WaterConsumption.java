@@ -94,9 +94,64 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
         this.waterQuality = quality;
     }
 
-        public void detectRefill() {
+    public void detectRefill() {
         if (this.initialLevel != null && this.finalLevel != null) {
             this.isRefill = this.finalLevel > this.initialLevel;
         }
     }
+
+    /**
+     * Updates consumption data when new events are added.
+     * This allows recalculation of consumption and refill detection.
+     * 
+     * IMPORTANT: The isRefill flag is determined by the service layer
+     * (ConsumptionCalculationServiceImpl) which analyzes ALL events of the day,
+     * not just initial and final levels.
+     * 
+     * @param initialLevel Initial water level (in liters)
+     * @param finalLevel Final water level (in liters)
+     * @param waterQuality Water quality for the day
+     * @param deviceId Device that recorded the measurements
+     */
+    public void updateConsumptionData(Double initialLevel, Double finalLevel, 
+                                      String waterQuality, Long deviceId) {
+        this.initialLevel = initialLevel;
+        this.finalLevel = finalLevel;
+        this.waterQuality = waterQuality;
+        this.deviceId = deviceId;
+        
+        // Simple detection based on final vs initial
+        // (The service layer does more sophisticated detection using intermediate events)
+        boolean likelyRefill = finalLevel > initialLevel;
+        
+        if (likelyRefill) {
+            // Likely a refill day (but service layer will confirm)
+            this.isRefill = true;
+            this.consumption = 0.0;
+            log.debug("🔄 Updated as REFILL day: {}L → {}L", initialLevel, finalLevel);
+        } else {
+            // Normal consumption day
+            this.isRefill = false;
+            this.consumption = Math.abs(initialLevel - finalLevel);
+            log.debug("✅ Updated consumption: {} L ({}L → {}L)", 
+                this.consumption, initialLevel, finalLevel);
+        }
+    }
+    
+    /**
+     * Manually set the refill flag.
+     * Used when the service layer detects a refill through intermediate events.
+     * 
+     * @param isRefill true if this day had a refill
+     */
+    public void setRefillStatus(boolean isRefill) {
+        this.isRefill = isRefill;
+        if (isRefill) {
+            this.consumption = 0.0;
+            log.debug("🔄 Manually marked as REFILL day");
+        }
+    }
+    
+    private static final org.slf4j.Logger log = 
+        org.slf4j.LoggerFactory.getLogger(WaterConsumption.class);
 }

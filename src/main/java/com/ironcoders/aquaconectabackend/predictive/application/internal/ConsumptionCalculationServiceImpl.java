@@ -84,38 +84,85 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
             Map<LocalDate, List<EventDTO>> eventsByDate = events.stream()
                 .collect(Collectors.groupingBy(EventDTO::getDate));
 
-            // 5. Calculate consumption for each day
-            List<WaterConsumption> newConsumptions = new ArrayList<>();
+            // 5. Calculate consumption for each day (with update support)
+            List<WaterConsumption> consumptionsToSave = new ArrayList<>();
+            int newCount = 0;
+            int updatedCount = 0;
 
             for (Map.Entry<LocalDate, List<EventDTO>> entry : eventsByDate.entrySet()) {
                 LocalDate date = entry.getKey();
                 List<EventDTO> dayEvents = entry.getValue();
 
-                // Skip if consumption already calculated for this day
-                if (waterConsumptionRepository.existsByResidentIdAndDate(command.residentId(), date)) {
-                    log.debug("Consumption already exists for resident: {} on date: {}", 
-                        command.residentId(), date);
+                // Check if consumption already exists for this day
+                Optional<WaterConsumption> existingConsumption = 
+                    waterConsumptionRepository.findByResidentIdAndDate(command.residentId(), date);
+
+                // Sort events by timestamp to get first and last
+                dayEvents.sort(Comparator.comparing(EventDTO::getTimestamp));
+                
+                if (dayEvents.isEmpty()) {
+                    log.warn("No events for date: {}", date);
                     continue;
                 }
 
-                // Calculate consumption for this day (passing waterTankSize)
-                Optional<WaterConsumption> consumption = calculateDailyConsumption(
-                    command.residentId(),
-                    date,
-                    dayEvents,
-                    waterTankSize  // ← NUEVO: pasar el tamaño del tanque
-                );
+                EventDTO firstEvent = dayEvents.get(0);
+                EventDTO lastEvent = dayEvents.get(dayEvents.size() - 1);
 
-                consumption.ifPresent(newConsumptions::add);
+                // Parse levels and convert to liters
+                Double initialPercentage = parsePercentage(firstEvent.getLevelValue());
+                Double finalPercentage = parsePercentage(lastEvent.getLevelValue());
+                Double initialLiters = (initialPercentage / 100.0) * waterTankSize;
+                Double finalLiters = (finalPercentage / 100.0) * waterTankSize;
+                String waterQuality = getMostCommonQuality(dayEvents);
+                Long deviceId = firstEvent.getDeviceId();
+
+                // 🔍 NUEVO: Detect refill by checking intermediate events
+                boolean hasRefill = detectRefillInEvents(dayEvents, waterTankSize);
+
+                if (existingConsumption.isPresent()) {
+                    // UPDATE existing consumption
+                    WaterConsumption consumption = existingConsumption.get();
+                    
+                    // Update basic data
+                    consumption.updateConsumptionData(initialLiters, finalLiters, waterQuality, deviceId);
+                    
+                    // Override refill status based on intermediate events analysis
+                    if (hasRefill) {
+                        consumption.setRefillStatus(true);
+                        if (!consumption.getIsRefill()) {
+                            log.info("🔄 REFILL NOW DETECTED for date {} (detected through intermediate events)", date);
+                        }
+                    }
+                    
+                    consumptionsToSave.add(consumption);
+                    updatedCount++;
+                    log.info("♻️ Updated consumption for resident: {} on date: {} (refill: {})", 
+                        command.residentId(), date, hasRefill);
+                } else {
+                    // CREATE new consumption
+                    Optional<WaterConsumption> newConsumption = calculateDailyConsumption(
+                        command.residentId(),
+                        date,
+                        dayEvents,
+                        waterTankSize
+                    );
+                    
+                    if (newConsumption.isPresent()) {
+                        consumptionsToSave.add(newConsumption.get());
+                        newCount++;
+                        log.info("✨ Created new consumption for resident: {} on date: {}", 
+                            command.residentId(), date);
+                    }
+                }
             }
 
-            // 6. Save all new consumption records
-            if (!newConsumptions.isEmpty()) {
-                waterConsumptionRepository.saveAll(newConsumptions);
-                log.info("Saved {} new consumption records for resident: {}", 
-                    newConsumptions.size(), command.residentId());
+            // 6. Save all consumption records (new + updated)
+            if (!consumptionsToSave.isEmpty()) {
+                waterConsumptionRepository.saveAll(consumptionsToSave);
+                log.info("💾 Saved {} consumption records for resident: {} (new: {}, updated: {})", 
+                    consumptionsToSave.size(), command.residentId(), newCount, updatedCount);
             } else {
-                log.info("No new consumption records to save for resident: {}", command.residentId());
+                log.info("No consumption records to save for resident: {}", command.residentId());
             }
 
             // 7. Return all consumption data (existing + new) for the date range
@@ -167,21 +214,12 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
             Double initialPercentage = parsePercentage(firstEvent.getLevelValue());
             Double finalPercentage = parsePercentage(lastEvent.getLevelValue());
 
-                    // ✅ AGREGAR ESTOS LOGS
-            log.info("=== DEBUGGING CONSUMPTION CALCULATION ===");
-            log.info("Date: {}", date);
-            log.info("First Event levelValue: '{}' → parsed: {}%", 
-                firstEvent.getLevelValue(), initialPercentage);
-            log.info("Last Event levelValue: '{}' → parsed: {}%", 
-                lastEvent.getLevelValue(), finalPercentage);
-            log.info("Water Tank Size: {} L", waterTankSize);
+            // Convert percentage to liters
+            Double initialLiters = (initialPercentage / 100.0) * waterTankSize;
+            Double finalLiters = (finalPercentage / 100.0) * waterTankSize;
 
-                // Convert percentage to liters
-                Double initialLiters = (initialPercentage / 100.0) * waterTankSize;
-                Double finalLiters = (finalPercentage / 100.0) * waterTankSize;
-
-            log.info("Initial Liters: {} L", initialLiters);
-            log.info("Final Liters: {} L", finalLiters);
+            log.debug("Date: {}, Levels: {}% → {}% ({} L → {} L)", 
+                date, initialPercentage, finalPercentage, initialLiters, finalLiters);
 
             // NUEVO: Detect if there was a refill
             boolean isRefill = finalLiters > initialLiters;
@@ -272,5 +310,49 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
             .max(Map.Entry.comparingByValue())
             .map(Map.Entry::getKey)
             .orElse("Unknown");
+    }
+
+    /**
+     * Detects if there was a refill during the day by analyzing all events.
+     * A refill is detected when there's a significant increase in water level
+     * between consecutive events (>= 50% increase).
+     * 
+     * This handles cases where:
+     * - Initial events showed normal consumption (68% → 62%)
+     * - Later, intermediate events arrive showing the full story (68% → 20% → 100% → 62%)
+     * 
+     * @param events List of events for the day (must be sorted by timestamp)
+     * @param waterTankSize Tank capacity to convert percentages to liters
+     * @return true if a refill was detected, false otherwise
+     */
+    private boolean detectRefillInEvents(List<EventDTO> events, Double waterTankSize) {
+        if (events.size() < 2) {
+            return false;
+        }
+
+        // Ensure events are sorted by timestamp
+        events.sort(Comparator.comparing(EventDTO::getTimestamp));
+
+        // Check consecutive events for significant level increases
+        for (int i = 0; i < events.size() - 1; i++) {
+            EventDTO currentEvent = events.get(i);
+            EventDTO nextEvent = events.get(i + 1);
+
+            Double currentPercentage = parsePercentage(currentEvent.getLevelValue());
+            Double nextPercentage = parsePercentage(nextEvent.getLevelValue());
+
+            // Calculate increase
+            Double percentageIncrease = nextPercentage - currentPercentage;
+
+            // If water level increased by 50% or more, it's a refill
+            if (percentageIncrease >= 50.0) {
+                log.info("🔍 Refill detected between events: {}% → {}% (increase: {}%) at {}",
+                    currentPercentage, nextPercentage, percentageIncrease, 
+                    nextEvent.getTimestamp());
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -2,7 +2,6 @@ package com.ironcoders.aquaconectabackend.predictive.application.internal;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ironcoders.aquaconectabackend.monitoring.domain.model.aggregates.Event;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.ConsumptionPrediction;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.ConsumptionPrediction.PredictionStatus;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.WaterConsumption;
@@ -117,10 +116,11 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
             log.info("Calling ML service for resident: {}", command.residentId());
             MLPredictionResponse mlResponse = mlServiceClient.getPrediction(mlRequest);
 
-            // ✅ NUEVO: Ajustar predicciones considerando el agua disponible
+            // ✅ NUEVO: Ajustar predicciones considerando el agua disponible y fechas correctas
             MLPredictionResponse adjustedResponse = adjustPredictionsForWaterAvailability(
                 mlResponse, 
-                currentWaterLevel
+                currentWaterLevel,
+                consumptions  // ← Pasar consumos para obtener la última fecha
             );
 
             // 6. Mark old predictions as OUTDATED
@@ -145,11 +145,22 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
         }
     }
 
-    private MLPredictionResponse adjustPredictionsForWaterAvailability(MLPredictionResponse mlResponse,
-            Double currentWaterLevel) {
+    private MLPredictionResponse adjustPredictionsForWaterAvailability(
+            MLPredictionResponse mlResponse,
+            Double currentWaterLevel,
+            List<WaterConsumption> consumptions) {
     
     List<DailyPredictionDTO> originalPredictions = mlResponse.getNext7DaysPredictions();
     List<DailyPredictionDTO> adjustedPredictions = new ArrayList<>();
+    
+    // ✅ NUEVO: Obtener la última fecha de consumo para calcular las fechas correctamente
+    LocalDate lastConsumptionDate = consumptions.stream()
+        .map(WaterConsumption::getDate)
+        .max(LocalDate::compareTo)
+        .orElse(LocalDate.now());
+    
+    log.info("Last consumption date: {}, starting predictions from: {}", 
+        lastConsumptionDate, lastConsumptionDate.plusDays(1));
     
     Double remainingWater = currentWaterLevel;
     LocalDate runoutDate = null;
@@ -162,39 +173,47 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
         DailyPredictionDTO originalPrediction = originalPredictions.get(i);
         Double predictedConsumption = originalPrediction.getPredictedConsumption();
         
+        // ✅ NUEVO: Calcular la fecha correcta basada en la última fecha de consumo
+        LocalDate predictionDate = lastConsumptionDate.plusDays(i + 1);
+        String dayOfWeek = predictionDate.getDayOfWeek().toString();
+        
         if (waterDepleted) {
             // Water already depleted, set consumption to 0 for remaining days
             adjustedPredictions.add(new DailyPredictionDTO(
-                originalPrediction.getDate(),
+                predictionDate.toString(),  // ✅ Usar fecha calculada
                 0.0,  // No consumption possible
-                originalPrediction.getDayOfWeek()
+                dayOfWeek
             ));
-            log.debug("Day {}: Water depleted, setting consumption to 0", i + 1);
+            log.debug("Day {}: {} - Water depleted, setting consumption to 0", i + 1, predictionDate);
             continue;
         }
         
         if (predictedConsumption <= remainingWater) {
             // Normal case: enough water for predicted consumption
-            adjustedPredictions.add(originalPrediction);
+            adjustedPredictions.add(new DailyPredictionDTO(
+                predictionDate.toString(),  // ✅ Usar fecha calculada
+                predictedConsumption,
+                dayOfWeek
+            ));
             remainingWater -= predictedConsumption;
             daysUntilRunout = i + 1;
             
-            log.debug("Day {}: Predicted {} L, Remaining {} L", 
-                i + 1, predictedConsumption, remainingWater);
+            log.debug("Day {}: {} - Predicted {} L, Remaining {} L", 
+                i + 1, predictionDate, predictedConsumption, remainingWater);
             
         } else {
             // Critical case: predicted consumption exceeds available water
             // Water will run out during this day
             adjustedPredictions.add(new DailyPredictionDTO(
-                originalPrediction.getDate(),
+                predictionDate.toString(),  // ✅ Usar fecha calculada
                 remainingWater,  // Can only consume what's left
-                originalPrediction.getDayOfWeek()
+                dayOfWeek
             ));
             
-            log.warn("Day {}: Predicted {} L but only {} L available. Water will run out!", 
-                i + 1, predictedConsumption, remainingWater);
+            log.warn("Day {}: {} - Predicted {} L but only {} L available. Water will run out!", 
+                i + 1, predictionDate, predictedConsumption, remainingWater);
             
-            runoutDate = LocalDate.parse(originalPrediction.getDate());
+            runoutDate = predictionDate;
             daysUntilRunout = i + 1;
             remainingWater = 0.0;
             waterDepleted = true;
@@ -207,11 +226,16 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
         if (avgConsumption > 0) {
             int additionalDays = (int) Math.ceil(remainingWater / avgConsumption);
             daysUntilRunout = 7 + additionalDays;
-            runoutDate = LocalDate.now().plusDays(daysUntilRunout);
+            // ✅ CORREGIDO: Calcular desde la última fecha de consumo, no desde hoy
+            runoutDate = lastConsumptionDate.plusDays(daysUntilRunout);
+            
+            log.info("Water will not run out in next 7 days. Estimated runout in {} additional days ({} total) on {}", 
+                additionalDays, daysUntilRunout, runoutDate);
         } else {
             // No consumption, water never runs out
             daysUntilRunout = 999;
-            runoutDate = LocalDate.now().plusYears(1);
+            runoutDate = lastConsumptionDate.plusYears(1);
+            log.info("No consumption detected, water will not run out");
         }
     }
     

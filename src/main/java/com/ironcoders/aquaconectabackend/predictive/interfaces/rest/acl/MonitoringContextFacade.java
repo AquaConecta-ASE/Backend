@@ -110,36 +110,20 @@ public class MonitoringContextFacade {
 
             // 2. Get events for all devices
             List<EventDTO> allEvents = new ArrayList<>();
-            int totalEventsBeforeFilter = 0;
 
             for (Device device : devices) {
                 List<Event> deviceEvents = eventQueryService.handle(
                         new GetAllEventsBySensorId(device.getId())
                 );
 
-                totalEventsBeforeFilter += deviceEvents.size();
-                
-                log.debug("Device {}: Found {} raw events", device.getId(), deviceEvents.size());
-
                 // 3. Transform and filter events by date range
                 List<EventDTO> filteredEvents = deviceEvents.stream()
                         .map(event -> toEventDTO(event, device.getId()))
-                        .filter(eventDTO -> {
-                            boolean inRange = isInDateRange(eventDTO, startDate, endDate);
-                            if (!inRange) {
-                                log.debug("Event {} EXCLUDED: date {} is outside range [{} - {}]",
-                                    eventDTO.getId(), eventDTO.getDate(), startDate, endDate);
-                            }
-                            return inRange;
-                        })
+                        .filter(eventDTO -> isInDateRange(eventDTO, startDate, endDate))
                         .collect(Collectors.toList());
 
-                log.debug("Device {}: {} events after date filter", device.getId(), filteredEvents.size());
                 allEvents.addAll(filteredEvents);
             }
-            
-            log.info("Total events before filter: {}, after filter: {} (excluded: {})",
-                totalEventsBeforeFilter, allEvents.size(), totalEventsBeforeFilter - allEvents.size());
 
             // 4. Sort by timestamp
             allEvents.sort((e1, e2) -> e1.getTimestamp().compareTo(e2.getTimestamp()));

@@ -323,8 +323,20 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
             Long residentId, 
             List<WaterConsumption> consumptions,
             Double currentWaterLevel) {
+
+        // NUEVO: Filter out refill days
+        List<WaterConsumption> normalConsumptions = consumptions.stream()
+            .filter(wc -> !wc.getIsRefill())  // Exclude refill days
+            .toList();
+                
+        log.info("Total consumption records: {}, Normal consumption days: {}, Refill days: {}", 
+            consumptions.size(), 
+            normalConsumptions.size(), 
+            consumptions.size() - normalConsumptions.size());   
         
-        var historicalData = consumptions.stream()
+        // Convert to historical data points (only normal consumption)
+    
+        var historicalData = normalConsumptions.stream()
             .map(wc -> new MLPredictionRequest.HistoricalDataPoint(
                 wc.getDate().toString(),
                 wc.getConsumption()

@@ -26,4 +26,30 @@ public interface WaterConsumptionRepository extends JpaRepository<WaterConsumpti
     boolean existsByResidentIdAndDate(Long residentId, LocalDate date);
 
     List<WaterConsumption> findByDeviceId(Long deviceId);
+
+    List<WaterConsumption> findByResidentIdAndDateBetweenAndIsRefillFalseOrderByDateAsc(
+            Long residentId,
+            LocalDate startDate,
+            LocalDate endDate
+    );
+
+    /**
+     * Find only refill days for a resident
+     */
+    List<WaterConsumption> findByResidentIdAndIsRefillTrueOrderByDateDesc(Long residentId);
+
+    /**
+     * Count refills in a date range
+     */
+    Long countByResidentIdAndDateBetweenAndIsRefillTrue(
+            Long residentId,
+            LocalDate startDate,
+            LocalDate endDate
+    );
+
+    /**
+     * Find the most recent refill day
+     */
+    Optional<WaterConsumption> findFirstByResidentIdAndIsRefillTrueOrderByDateDesc(Long residentId);
+
 }

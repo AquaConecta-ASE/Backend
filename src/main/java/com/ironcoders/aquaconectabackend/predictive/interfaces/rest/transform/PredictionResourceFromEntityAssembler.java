@@ -8,6 +8,7 @@ import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.Cons
 import com.ironcoders.aquaconectabackend.predictive.infrastructure.clients.dto.DailyPredictionDTO;
 import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.resources.DailyPredictionResource;
 import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.resources.PredictionResponseResource;
+import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.resources.RefillInfoResource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,10 @@ public class PredictionResourceFromEntityAssembler {
     /**
      * Transforms a ConsumptionPrediction entity to a REST resource.
      */
-    public static PredictionResponseResource toResourceFromEntity(ConsumptionPrediction entity) {
+    public static PredictionResponseResource toResourceFromEntity(
+        ConsumptionPrediction entity, 
+        RefillInfoResource refillInfo) 
+        {
         
         // Parse predictions JSON to list of resources
         List<DailyPredictionResource> predictions = parsePredictions(entity.getPredictionsJson());
@@ -38,7 +42,8 @@ public class PredictionResourceFromEntityAssembler {
             entity.getConfidenceScore(),
             entity.getCurrentWaterLevel(),
             entity.getTotalPredictedConsumption7Days(),
-            entity.getStatus().toString()
+            entity.getStatus().toString(),
+            refillInfo
         );
     }
 

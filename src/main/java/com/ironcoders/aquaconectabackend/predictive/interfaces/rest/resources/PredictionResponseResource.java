@@ -12,5 +12,7 @@ public record PredictionResponseResource(
     Double confidenceScore,
     Double currentWaterLevel,
     Double totalPredictedConsumption7Days,
-    String status
+    String status,
+    RefillInfoResource refillInfo  
+
 ) {}

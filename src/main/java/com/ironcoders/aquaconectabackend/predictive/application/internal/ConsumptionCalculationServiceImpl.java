@@ -168,27 +168,41 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
             Double finalPercentage = parsePercentage(lastEvent.getLevelValue());
 
                     // ✅ AGREGAR ESTOS LOGS
-        log.info("=== DEBUGGING CONSUMPTION CALCULATION ===");
-        log.info("Date: {}", date);
-        log.info("First Event levelValue: '{}' → parsed: {}%", 
-            firstEvent.getLevelValue(), initialPercentage);
-        log.info("Last Event levelValue: '{}' → parsed: {}%", 
-            lastEvent.getLevelValue(), finalPercentage);
-        log.info("Water Tank Size: {} L", waterTankSize);
+            log.info("=== DEBUGGING CONSUMPTION CALCULATION ===");
+            log.info("Date: {}", date);
+            log.info("First Event levelValue: '{}' → parsed: {}%", 
+                firstEvent.getLevelValue(), initialPercentage);
+            log.info("Last Event levelValue: '{}' → parsed: {}%", 
+                lastEvent.getLevelValue(), finalPercentage);
+            log.info("Water Tank Size: {} L", waterTankSize);
 
-            // Convert percentage to liters
-            Double initialLiters = (initialPercentage / 100.0) * waterTankSize;
-            Double finalLiters = (finalPercentage / 100.0) * waterTankSize;
+                // Convert percentage to liters
+                Double initialLiters = (initialPercentage / 100.0) * waterTankSize;
+                Double finalLiters = (finalPercentage / 100.0) * waterTankSize;
 
-        log.info("Initial Liters: {} L", initialLiters);
-        log.info("Final Liters: {} L", finalLiters);
+            log.info("Initial Liters: {} L", initialLiters);
+            log.info("Final Liters: {} L", finalLiters);
 
-            // Calculate consumption (absolute difference)
-            Double consumption = Math.abs(initialLiters - finalLiters);
+            // NUEVO: Detect if there was a refill
+            boolean isRefill = finalLiters > initialLiters;
 
-        log.info("Consumption: {} L", consumption);
-        log.info("==========================================");
-        
+            //  NUEVO: Calculate consumption differently based on refill
+            Double consumption;
+            if (isRefill) {
+                // Water was refilled, set consumption to 0
+                // (We don't count refills as consumption)
+                consumption = 0.0;
+
+                log.info("🔄 REFILL detected for resident {} on {}: {}% → {}% ({}L → {}L)",
+                    residentId, date, initialPercentage, finalPercentage, initialLiters, finalLiters);
+            } else {
+                // Normal consumption: water level decreased
+                consumption = Math.abs(initialLiters - finalLiters);
+
+                log.debug("✅ Normal consumption for resident {} on {}: {} L ({}% to {}%)",
+                    residentId, date, consumption, initialPercentage, finalPercentage);
+            }
+
             // Get most common water quality for the day
             String waterQuality = getMostCommonQuality(events);
 
@@ -203,7 +217,8 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
                 deviceId,
                 initialLiters,    // Store in liters for clarity
                 finalLiters,      // Store in liters for clarity
-                waterQuality
+                waterQuality,
+                isRefill          // NUEVO: marcar si fue un refill
             );
 
             log.debug("Calculated consumption for resident: {} on {}: {} L ({}% to {}% of {} L tank)",

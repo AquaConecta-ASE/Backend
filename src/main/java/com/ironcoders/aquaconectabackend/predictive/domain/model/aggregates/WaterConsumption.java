@@ -50,6 +50,8 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
     @Column(name = "final_level")
     private Double finalLevel;
 
+    @Column(nullable = false, name = "is_refill")
+    private Boolean isRefill;
     /**
      * Default constructor for JPA
      */
@@ -58,7 +60,7 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
 
     public WaterConsumption(Long residentId, LocalDate date, Double consumption,
                             Long deviceId, Double initialLevel, Double finalLevel,
-                            String waterQuality) {
+                            String waterQuality, Boolean isRefill) {
         this.residentId = residentId;
         this.date = date;
         this.consumption = consumption;
@@ -66,6 +68,13 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
         this.initialLevel = initialLevel;
         this.finalLevel = finalLevel;
         this.waterQuality = waterQuality;
+        this.isRefill = isRefill;
+    }
+
+    public WaterConsumption(Long residentId, LocalDate date, Double consumption, 
+                           Long deviceId, Double initialLevel, Double finalLevel, 
+                           String waterQuality) {
+        this(residentId, date, consumption, deviceId, initialLevel, finalLevel, waterQuality, false);
     }
 
     /**
@@ -83,5 +92,11 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
      */
     public void updateWaterQuality(String quality) {
         this.waterQuality = quality;
+    }
+
+        public void detectRefill() {
+        if (this.initialLevel != null && this.finalLevel != null) {
+            this.isRefill = this.finalLevel > this.initialLevel;
+        }
     }
 }

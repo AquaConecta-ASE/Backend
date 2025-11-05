@@ -19,8 +19,10 @@ import com.ironcoders.aquaconectabackend.predictive.domain.model.queries.GetCons
 import com.ironcoders.aquaconectabackend.predictive.domain.model.queries.GetLatestPredictionQuery;
 import com.ironcoders.aquaconectabackend.predictive.domain.services.PredictionCommandService;
 import com.ironcoders.aquaconectabackend.predictive.domain.services.PredictionQueryService;
+import com.ironcoders.aquaconectabackend.predictive.infrastructure.persistence.jpa.repositories.WaterConsumptionRepository;
 import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.resources.ConsumptionHistoryResource;
 import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.resources.PredictionResponseResource;
+import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.resources.RefillInfoResource;
 import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.transform.ConsumptionResourceFromEntityAssembler;
 import com.ironcoders.aquaconectabackend.predictive.interfaces.rest.transform.PredictionResourceFromEntityAssembler;
 
@@ -32,22 +34,25 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping(value = "/api/v1/predictive-analytics", produces = MediaType.APPLICATION_JSON_VALUE)
 @Tag(name = "Predictive Analytics", description = "Water Consumption Prediction and Analytics Endpoints")
-//PreAuthorize("isAuthenticated()")
+//@PreAuthorize("isAuthenticated()")
 public class PredictiveAnalyticsController {
 
     private static final Logger log = LoggerFactory.getLogger(PredictiveAnalyticsController.class);
 
     private final PredictionCommandService predictionCommandService;
     private final PredictionQueryService predictionQueryService;
+    private final WaterConsumptionRepository waterConsumptionRepository;
 
     /**
      * Constructor for dependency injection.
      */
     public PredictiveAnalyticsController(
             PredictionCommandService predictionCommandService,
-            PredictionQueryService predictionQueryService) {
+            PredictionQueryService predictionQueryService,
+            WaterConsumptionRepository waterConsumptionRepository) {
         this.predictionCommandService = predictionCommandService;
         this.predictionQueryService = predictionQueryService;
+        this.waterConsumptionRepository = waterConsumptionRepository;
     }
 
     /**
@@ -75,8 +80,12 @@ public class PredictiveAnalyticsController {
 
             if (cachedPrediction.isPresent()) {
                 log.info("Returning cached prediction for resident: {}", residentId);
+                
+                // ✅ NUEVO: Build refill info
+                RefillInfoResource refillInfo = buildRefillInfo(residentId);
+                
                 var resource = PredictionResourceFromEntityAssembler
-                    .toResourceFromEntity(cachedPrediction.get());
+                    .toResourceFromEntity(cachedPrediction.get(), refillInfo);  // ✅ ACTUALIZADO
                 return ResponseEntity.ok(resource);
             }
 
@@ -94,9 +103,12 @@ public class PredictiveAnalyticsController {
                     .build();
             }
 
+            // ✅ NUEVO: Build refill info
+            RefillInfoResource refillInfo = buildRefillInfo(residentId);
+
             // 3. Return new prediction
             var resource = PredictionResourceFromEntityAssembler
-                .toResourceFromEntity(newPrediction.get());
+                .toResourceFromEntity(newPrediction.get(), refillInfo);  // ✅ ACTUALIZADO
             
             return ResponseEntity.status(HttpStatus.CREATED).body(resource);
 
@@ -134,8 +146,11 @@ public class PredictiveAnalyticsController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
             }
 
+            // ✅ NUEVO: Build refill info
+            RefillInfoResource refillInfo = buildRefillInfo(residentId);
+
             var resource = PredictionResourceFromEntityAssembler
-                .toResourceFromEntity(prediction.get());
+                .toResourceFromEntity(prediction.get(), refillInfo);  // ✅ ACTUALIZADO
             
             return ResponseEntity.status(HttpStatus.CREATED).body(resource);
 
@@ -201,6 +216,50 @@ public class PredictiveAnalyticsController {
         } catch (Exception e) {
             log.error("Error retrieving consumption history for resident: {}", residentId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    // ✅ NUEVO MÉTODO: Builds refill information for the response
+    /**
+     * Builds refill information for a resident.
+     * 
+     * @param residentId The resident ID
+     * @return RefillInfoResource with refill statistics
+     */
+    private RefillInfoResource buildRefillInfo(Long residentId) {
+        try {
+            LocalDate endDate = LocalDate.now();
+            LocalDate startDate = endDate.minusDays(30);
+            
+            // Count refills in last 30 days
+            Long refillCount = waterConsumptionRepository
+                .countByResidentIdAndDateBetweenAndIsRefillTrue(residentId, startDate, endDate);
+            
+            // Get last refill date
+            Optional<WaterConsumption> lastRefill = waterConsumptionRepository
+                .findFirstByResidentIdAndIsRefillTrueOrderByDateDesc(residentId);
+            
+            String lastRefillStr = lastRefill
+                .map(wc -> wc.getDate().toString())
+                .orElse(null);
+            
+            Integer daysSinceRefill = lastRefill
+                .map(wc -> (int) java.time.temporal.ChronoUnit.DAYS.between(wc.getDate(), LocalDate.now()))
+                .orElse(null);
+            
+            log.debug("Refill info for resident {}: {} refills in last 30 days, last refill: {}", 
+                residentId, refillCount, lastRefillStr);
+            
+            return new RefillInfoResource(
+                refillCount.intValue(),
+                lastRefillStr,
+                daysSinceRefill
+            );
+            
+        } catch (Exception e) {
+            log.error("Error building refill info for resident: {}", residentId, e);
+            // Return empty refill info on error
+            return new RefillInfoResource(0, null, null);
         }
     }
 }

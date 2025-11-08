@@ -2,7 +2,6 @@ package com.ironcoders.aquaconectabackend.predictive.application.internal;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ironcoders.aquaconectabackend.monitoring.domain.model.aggregates.Event;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.ConsumptionPrediction;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.ConsumptionPrediction.PredictionStatus;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.WaterConsumption;
@@ -68,16 +67,37 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
     @Transactional
     public Optional<ConsumptionPrediction> handle(GeneratePredictionCommand command) {
         try {
-            log.info("Starting prediction generation for resident: {}", command.residentId());
+            log.info("Starting prediction generation for subscription: {} (resident: {})", 
+                command.subscriptionId(), command.residentId());
 
             command.validate();
 
-            // 1. Calculate daily consumption for the last 30 days
+            // 1. Validate subscription belongs to resident
+            if (!subscriptionContextFacade.isSubscriptionOwnedByResident(
+                    command.subscriptionId(), command.residentId())) {
+                log.error("Subscription {} does not belong to resident {}", 
+                    command.subscriptionId(), command.residentId());
+                return Optional.empty();
+            }
+
+            // 2. Get sensor and device info
+            Optional<Long> sensorIdOpt = subscriptionContextFacade
+                .getSensorIdBySubscription(command.subscriptionId());
+            
+            if (sensorIdOpt.isEmpty()) {
+                log.error("No sensor found for subscription: {}", command.subscriptionId());
+                return Optional.empty();
+            }
+            
+            Long sensorId = sensorIdOpt.get();
+
+            // 3. Calculate daily consumption for the last 30 days
             LocalDate endDate = LocalDate.now();
             LocalDate startDate = endDate.minusDays(30);
             
             var calculateCommand = new CalculateDailyConsumptionCommand(
-                command.residentId(),
+                command.subscriptionId(),  // PRIMARY identifier
+                command.residentId(),      // SECONDARY identifier
                 startDate,
                 endDate
             );
@@ -86,70 +106,85 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
                 consumptionCalculationService.handle(calculateCommand);
 
             if (consumptions.size() < 7) {
-                log.warn("Insufficient consumption data for resident: {}. Need at least 7 days, got: {}", 
-                    command.residentId(), consumptions.size());
+                log.warn("Insufficient consumption data for subscription: {}. Need at least 7 days, got: {}", 
+                    command.subscriptionId(), consumptions.size());
                 return Optional.empty();
             }
 
-            log.info("Found {} days of consumption data for resident: {}", 
-                consumptions.size(), command.residentId());
+            log.info("Found {} days of consumption data for subscription: {}", 
+                consumptions.size(), command.subscriptionId());
 
-            // 2. Get water tank size
+            // 4. Get water tank size
             Double waterTankSize = subscriptionContextFacade
-                .getWaterTankSizeByResidentId(command.residentId())
+                .getWaterTankSizeBySubscription(command.subscriptionId())
                 .orElse(1000.0);
 
-            // 3. ✅ NUEVO: Get current water level from latest event
-            Double currentWaterLevel = getCurrentWaterLevel(command.residentId(), waterTankSize);
+            // 5. ✅ Get current water level from latest event
+            Double currentWaterLevel = getCurrentWaterLevel(
+                command.subscriptionId(), sensorId, waterTankSize);
             
-            log.info("Current water level for resident {}: {} L ({}% of {} L tank)", 
-                command.residentId(), currentWaterLevel, 
+            log.info("Current water level for subscription {}: {} L ({}% of {} L tank)", 
+                command.subscriptionId(), currentWaterLevel, 
                 (currentWaterLevel / waterTankSize) * 100, waterTankSize);
 
-            // 4. Prepare ML request
+            // 6. Prepare ML request
             MLPredictionRequest mlRequest = buildMLRequest(
-                command.residentId(), 
+                command.subscriptionId(), 
                 consumptions, 
-                currentWaterLevel  // ← Usar nivel actual, no tamaño del tanque
-            );
-
-            // 5. Call ML service
-            log.info("Calling ML service for resident: {}", command.residentId());
-            MLPredictionResponse mlResponse = mlServiceClient.getPrediction(mlRequest);
-
-            // ✅ NUEVO: Ajustar predicciones considerando el agua disponible
-            MLPredictionResponse adjustedResponse = adjustPredictionsForWaterAvailability(
-                mlResponse, 
                 currentWaterLevel
             );
 
-            // 6. Mark old predictions as OUTDATED
-            markOldPredictionsAsOutdated(command.residentId());
+            // 7. Call ML service
+            log.info("Calling ML service for subscription: {}", command.subscriptionId());
+            MLPredictionResponse mlResponse = mlServiceClient.getPrediction(mlRequest);
 
-            // 7. Create and save new prediction
+            // 8. Adjust predictions for water availability and correct dates
+            MLPredictionResponse adjustedResponse = adjustPredictionsForWaterAvailability(
+                mlResponse, 
+                currentWaterLevel,
+                consumptions
+            );
+
+            // 9. Mark old predictions as OUTDATED
+            markOldPredictionsAsOutdated(command.subscriptionId());
+
+            // 10. Create and save new prediction
             ConsumptionPrediction prediction = createPrediction(
-                command.residentId(), 
+                command.subscriptionId(),
+                command.residentId(),
+                sensorId,
                 adjustedResponse
             );
             
             predictionRepository.save(prediction);
 
-            log.info("Prediction generated successfully for resident: {} with confidence: {}", 
-                command.residentId(), prediction.getConfidenceScore());
+            log.info("Prediction generated successfully for subscription: {} with confidence: {}", 
+                command.subscriptionId(), prediction.getConfidenceScore());
 
             return Optional.of(prediction);
 
         } catch (Exception e) {
-            log.error("Error generating prediction for resident: {}", command.residentId(), e);
+            log.error("Error generating prediction for subscription: {}", command.subscriptionId(), e);
             return Optional.empty();
         }
     }
 
-    private MLPredictionResponse adjustPredictionsForWaterAvailability(MLPredictionResponse mlResponse,
-            Double currentWaterLevel) {
+    private MLPredictionResponse adjustPredictionsForWaterAvailability(
+            MLPredictionResponse mlResponse,
+            Double currentWaterLevel,
+            List<WaterConsumption> consumptions) {
     
     List<DailyPredictionDTO> originalPredictions = mlResponse.getNext7DaysPredictions();
     List<DailyPredictionDTO> adjustedPredictions = new ArrayList<>();
+    
+    // ✅ NUEVO: Obtener la última fecha de consumo para calcular las fechas correctamente
+    LocalDate lastConsumptionDate = consumptions.stream()
+        .map(WaterConsumption::getDate)
+        .max(LocalDate::compareTo)
+        .orElse(LocalDate.now());
+    
+    log.info("Last consumption date: {}, starting predictions from: {}", 
+        lastConsumptionDate, lastConsumptionDate.plusDays(1));
     
     Double remainingWater = currentWaterLevel;
     LocalDate runoutDate = null;
@@ -162,39 +197,47 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
         DailyPredictionDTO originalPrediction = originalPredictions.get(i);
         Double predictedConsumption = originalPrediction.getPredictedConsumption();
         
+        // ✅ NUEVO: Calcular la fecha correcta basada en la última fecha de consumo
+        LocalDate predictionDate = lastConsumptionDate.plusDays(i + 1);
+        String dayOfWeek = predictionDate.getDayOfWeek().toString();
+        
         if (waterDepleted) {
             // Water already depleted, set consumption to 0 for remaining days
             adjustedPredictions.add(new DailyPredictionDTO(
-                originalPrediction.getDate(),
+                predictionDate.toString(),  // ✅ Usar fecha calculada
                 0.0,  // No consumption possible
-                originalPrediction.getDayOfWeek()
+                dayOfWeek
             ));
-            log.debug("Day {}: Water depleted, setting consumption to 0", i + 1);
+            log.debug("Day {}: {} - Water depleted, setting consumption to 0", i + 1, predictionDate);
             continue;
         }
         
         if (predictedConsumption <= remainingWater) {
             // Normal case: enough water for predicted consumption
-            adjustedPredictions.add(originalPrediction);
+            adjustedPredictions.add(new DailyPredictionDTO(
+                predictionDate.toString(),  // ✅ Usar fecha calculada
+                predictedConsumption,
+                dayOfWeek
+            ));
             remainingWater -= predictedConsumption;
             daysUntilRunout = i + 1;
             
-            log.debug("Day {}: Predicted {} L, Remaining {} L", 
-                i + 1, predictedConsumption, remainingWater);
+            log.debug("Day {}: {} - Predicted {} L, Remaining {} L", 
+                i + 1, predictionDate, predictedConsumption, remainingWater);
             
         } else {
             // Critical case: predicted consumption exceeds available water
             // Water will run out during this day
             adjustedPredictions.add(new DailyPredictionDTO(
-                originalPrediction.getDate(),
+                predictionDate.toString(),  // ✅ Usar fecha calculada
                 remainingWater,  // Can only consume what's left
-                originalPrediction.getDayOfWeek()
+                dayOfWeek
             ));
             
-            log.warn("Day {}: Predicted {} L but only {} L available. Water will run out!", 
-                i + 1, predictedConsumption, remainingWater);
+            log.warn("Day {}: {} - Predicted {} L but only {} L available. Water will run out!", 
+                i + 1, predictionDate, predictedConsumption, remainingWater);
             
-            runoutDate = LocalDate.parse(originalPrediction.getDate());
+            runoutDate = predictionDate;
             daysUntilRunout = i + 1;
             remainingWater = 0.0;
             waterDepleted = true;
@@ -207,11 +250,16 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
         if (avgConsumption > 0) {
             int additionalDays = (int) Math.ceil(remainingWater / avgConsumption);
             daysUntilRunout = 7 + additionalDays;
-            runoutDate = LocalDate.now().plusDays(daysUntilRunout);
+            // ✅ CORREGIDO: Calcular desde la última fecha de consumo, no desde hoy
+            runoutDate = lastConsumptionDate.plusDays(daysUntilRunout);
+            
+            log.info("Water will not run out in next 7 days. Estimated runout in {} additional days ({} total) on {}", 
+                additionalDays, daysUntilRunout, runoutDate);
         } else {
             // No consumption, water never runs out
             daysUntilRunout = 999;
-            runoutDate = LocalDate.now().plusYears(1);
+            runoutDate = lastConsumptionDate.plusYears(1);
+            log.info("No consumption detected, water will not run out");
         }
     }
     
@@ -237,24 +285,28 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
 }
 
     /**
-     * ✅ NUEVO MÉTODO: Gets the current water level from the most recent event.
+     * Gets the current water level from the most recent event for a subscription.
      * 
-     * @param residentId The resident ID
+     * PRIMARY: Uses subscriptionId to get current water level.
+     * 
+     * @param subscriptionId The subscription ID
+     * @param sensorId The sensor ID linked to the subscription
      * @param waterTankSize The tank size to convert percentage to liters
      * @return Current water level in liters
      */
-    private Double getCurrentWaterLevel(Long residentId, Double waterTankSize) {
+    private Double getCurrentWaterLevel(Long subscriptionId, Long sensorId, Double waterTankSize) {
         try {
-            // Get most recent events for this resident (last 2 days to be safe)
-            List<EventDTO> recentEvents = monitoringContextFacade.getEventsByResidentId(
-                residentId,
+            // Get most recent events for this subscription (last 2 days to be safe)
+            List<EventDTO> recentEvents = monitoringContextFacade.getEventsBySubscriptionId(
+                subscriptionId,
+                sensorId,
                 LocalDate.now().minusDays(2),
                 LocalDate.now()
             );
 
             if (recentEvents.isEmpty()) {
-                log.warn("No recent events found for resident: {}. Using default water level (50% of tank).", 
-                    residentId);
+                log.warn("No recent events found for subscription: {}. Using default water level (50% of tank).", 
+                    subscriptionId);
                 return waterTankSize * 0.5; // Default: 50% of tank
             }
 
@@ -268,13 +320,13 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
             Double percentage = parsePercentage(levelValue);
             Double currentLiters = (percentage / 100.0) * waterTankSize;
 
-            log.debug("Latest event for resident {} at {}: {}% = {} L", 
-                residentId, latestEvent.getTimestamp(), percentage, currentLiters);
+            log.debug("Latest event for subscription {} at {}: {}% = {} L", 
+                subscriptionId, latestEvent.getTimestamp(), percentage, currentLiters);
 
             return currentLiters;
 
         } catch (Exception e) {
-            log.error("Error getting current water level for resident: {}", residentId, e);
+            log.error("Error getting current water level for subscription: {}", subscriptionId, e);
             return waterTankSize * 0.5; // Fallback: 50% of tank
         }
     }
@@ -317,14 +369,31 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
     }
 
     /**
-     * Builds the ML service request from consumption data
+     * Builds the ML service request from consumption data.
+     * 
+     * @param subscriptionId The subscription ID (used for identification)
+     * @param consumptions List of consumption records
+     * @param currentWaterLevel Current water level in liters
+     * @return ML prediction request
      */
     private MLPredictionRequest buildMLRequest(
-            Long residentId, 
+            Long subscriptionId, 
             List<WaterConsumption> consumptions,
             Double currentWaterLevel) {
+
+        // Filter out refill days
+        List<WaterConsumption> normalConsumptions = consumptions.stream()
+            .filter(wc -> !wc.getIsRefill())  // Exclude refill days
+            .toList();
+                
+        log.info("Subscription {}: Total consumption records: {}, Normal: {}, Refills: {}", 
+            subscriptionId,
+            consumptions.size(), 
+            normalConsumptions.size(), 
+            consumptions.size() - normalConsumptions.size());   
         
-        var historicalData = consumptions.stream()
+        // Convert to historical data points (only normal consumption)
+        var historicalData = normalConsumptions.stream()
             .map(wc -> new MLPredictionRequest.HistoricalDataPoint(
                 wc.getDate().toString(),
                 wc.getConsumption()
@@ -332,17 +401,27 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
             .toList();
 
         return new MLPredictionRequest(
-            residentId.toString(),
+            subscriptionId.toString(),  // Use subscriptionId as identifier
             historicalData,
-            currentWaterLevel  // ← Ahora usa el nivel actual correcto
+            currentWaterLevel
         );
     }
 
     /**
-     * Creates a ConsumptionPrediction entity from ML response
+     * Creates a ConsumptionPrediction entity from ML response.
+     * 
+     * PRIMARY: Uses subscriptionId as primary identifier.
+     * 
+     * @param subscriptionId The subscription ID
+     * @param residentId The resident ID (for secondary queries)
+     * @param deviceId The device/sensor ID
+     * @param mlResponse ML prediction response
+     * @return New ConsumptionPrediction entity
      */
     private ConsumptionPrediction createPrediction(
+            Long subscriptionId,
             Long residentId, 
+            Long deviceId,
             MLPredictionResponse mlResponse) {
         
         try {
@@ -353,7 +432,9 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
             LocalDate runoutDate = LocalDate.parse(mlResponse.getWaterRunoutDate());
 
             return new ConsumptionPrediction(
-                residentId,
+                subscriptionId,  // PRIMARY identifier
+                residentId,      // SECONDARY identifier
+                deviceId,        // Device/sensor ID
                 mlResponse.getDailyAverageConsumption(),
                 predictionsJson,
                 runoutDate,
@@ -370,18 +451,23 @@ public class PredictionCommandServiceImpl implements PredictionCommandService {
     }
 
     /**
-     * Marks all active predictions for a resident as OUTDATED
+     * Marks all active predictions for a subscription as OUTDATED.
+     * 
+     * PRIMARY: Uses subscriptionId to mark old predictions.
+     * 
+     * @param subscriptionId The subscription ID
      */
-    private void markOldPredictionsAsOutdated(Long residentId) {
+    private void markOldPredictionsAsOutdated(Long subscriptionId) {
         List<ConsumptionPrediction> activePredictions = 
-            predictionRepository.findByResidentIdAndStatus(residentId, PredictionStatus.ACTIVE);
+            predictionRepository.findBySubscriptionIdAndStatus(
+                subscriptionId, PredictionStatus.ACTIVE);
 
         activePredictions.forEach(ConsumptionPrediction::markAsOutdated);
         
         if (!activePredictions.isEmpty()) {
             predictionRepository.saveAll(activePredictions);
-            log.info("Marked {} old predictions as OUTDATED for resident: {}", 
-                activePredictions.size(), residentId);
+            log.info("Marked {} old predictions as OUTDATED for subscription: {}", 
+                activePredictions.size(), subscriptionId);
         }
     }
 }

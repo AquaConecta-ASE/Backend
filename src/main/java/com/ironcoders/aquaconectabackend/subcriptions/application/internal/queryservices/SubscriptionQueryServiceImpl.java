@@ -2,9 +2,7 @@ package com.ironcoders.aquaconectabackend.subcriptions.application.internal.quer
 
 import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Provider;
-import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Resident;
 import com.ironcoders.aquaconectabackend.profiles.infrastructure.persistence.jpa.repositories.ProviderRepository;
-import com.ironcoders.aquaconectabackend.profiles.infrastructure.persistence.jpa.repositories.ResidentRepository;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.aggregates.Subscription;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.queries.GetAllSubscriptions;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.queries.GetAllSubscriptionsByResidentId;

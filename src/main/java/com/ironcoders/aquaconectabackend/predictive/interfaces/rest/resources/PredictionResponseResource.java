@@ -3,6 +3,7 @@ package com.ironcoders.aquaconectabackend.predictive.interfaces.rest.resources;
 import java.util.List;
 
 public record PredictionResponseResource(
+    Long subscriptionId,
     Long residentId,
     String predictionDate,
     Double dailyAverageConsumption,
@@ -12,5 +13,7 @@ public record PredictionResponseResource(
     Double confidenceScore,
     Double currentWaterLevel,
     Double totalPredictedConsumption7Days,
-    String status
+    String status,
+    RefillInfoResource refillInfo  
+
 ) {}

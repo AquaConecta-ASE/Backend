@@ -14,10 +14,24 @@ import java.time.LocalDateTime;
 public class ConsumptionPrediction extends AuditableAbstractAggregateRoot<ConsumptionPrediction> {
 
     /**
+     * ID of the subscription (primary identifier for predictions)
+     * Each subscription represents one water tank/sensor
+     */
+    @Column(nullable = false, name = "subscription_id")
+    private Long subscriptionId;
+
+    /**
      * ID of the resident for whom the prediction was made
+     * Kept for secondary queries (get all predictions for a resident)
      */
     @Column(nullable = false, name = "resident_id")
     private Long residentId;
+
+    /**
+     * ID of the device/sensor associated with this prediction
+     */
+    @Column(name = "device_id")
+    private Long deviceId;
 
     /**
      * Date and time when the prediction was generated
@@ -86,12 +100,15 @@ public class ConsumptionPrediction extends AuditableAbstractAggregateRoot<Consum
     /**
      * Constructor for creating a new prediction
      */
-    public ConsumptionPrediction(Long residentId, Double dailyAverageConsumption,
+    public ConsumptionPrediction(Long subscriptionId, Long residentId, Long deviceId,
+                                 Double dailyAverageConsumption,
                                  String predictionsJson, LocalDate waterRunoutDate,
                                  Integer daysUntilRunout, Double confidenceScore,
                                  Double currentWaterLevel, Double totalPredicted) {
         this();
+        this.subscriptionId = subscriptionId;
         this.residentId = residentId;
+        this.deviceId = deviceId;
         this.dailyAverageConsumption = dailyAverageConsumption;
         this.predictionsJson = predictionsJson;
         this.waterRunoutDate = waterRunoutDate;

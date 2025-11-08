@@ -104,6 +104,10 @@ htmlcov/
 /api-docs/
 /swagger-ui/
 
+### Test Scenarios ###
+TEST_SCENARIO_*.md
+API_DOCUMENTATION_FRONTEND*.md
+
 ### Backup Files ###
 *.bak
 *.backup

@@ -1,19 +1,14 @@
 package com.ironcoders.aquaconectabackend.subcriptions.interfaces.rest.transform;
 
 import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
-import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Resident;
-import com.ironcoders.aquaconectabackend.profiles.infrastructure.persistence.jpa.repositories.ResidentQueryService;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.acl.ProviderContextFacade.ProviderContextFacade;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.aggregates.Subscription;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.commands.CreateAdditionalSubscriptionCommand;
-import com.ironcoders.aquaconectabackend.subcriptions.domain.model.commands.CreateSubscriptionCommand;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.commands.UpdateSubscriptionCommand;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.queries.GetAllSubscriptions;
-import com.ironcoders.aquaconectabackend.subcriptions.domain.model.queries.GetAllSubscriptionsByResidentId;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.queries.GetSubscriptionsByProviderId;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.services.subscription.SubscriptionCommandService;
 import com.ironcoders.aquaconectabackend.subcriptions.infrastructure.persistence.jpa.repositories.subscription.SubscriptionQueryService;
-import com.ironcoders.aquaconectabackend.subcriptions.interfaces.rest.resources.CreateSubscriptionResource;
 import com.ironcoders.aquaconectabackend.subcriptions.interfaces.rest.resources.SubscriptionResource;
 import com.ironcoders.aquaconectabackend.subcriptions.interfaces.rest.resources.UpdateSubscriptionResource;
 

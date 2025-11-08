@@ -33,6 +33,7 @@ public class PredictionResourceFromEntityAssembler {
         List<DailyPredictionResource> predictions = parsePredictions(entity.getPredictionsJson());
 
         return new PredictionResponseResource(
+            entity.getSubscriptionId(),
             entity.getResidentId(),
             entity.getPredictionDate().toString(),
             entity.getDailyAverageConsumption(),

@@ -140,6 +140,43 @@ public class MonitoringContextFacade {
     }
 
     /**
+     * PRIMARY: Gets events for a subscription in a date range.
+     * Uses the device/sensor linked to the subscription.
+     *
+     * @param subscriptionId The subscription ID
+     * @param sensorId The sensor/device ID linked to the subscription
+     * @param startDate Start of date range
+     * @param endDate End of date range
+     * @return List of EventDTO
+     */
+    public List<EventDTO> getEventsBySubscriptionId(
+            Long subscriptionId,
+            Long sensorId,
+            LocalDate startDate,
+            LocalDate endDate) {
+
+        log.debug("Fetching events for subscription: {} (sensor: {}) from {} to {}",
+                subscriptionId, sensorId, startDate, endDate);
+
+        try {
+            List<Event> events = eventQueryService.handle(
+                    new GetAllEventsBySensorId(sensorId)
+            );
+
+            return events.stream()
+                    .map(event -> toEventDTO(event, sensorId))
+                    .filter(eventDTO -> isInDateRange(eventDTO, startDate, endDate))
+                    .sorted((e1, e2) -> e1.getTimestamp().compareTo(e2.getTimestamp()))
+                    .collect(Collectors.toList());
+
+        } catch (Exception e) {
+            log.error("Error fetching events for subscription: {} (sensor: {})",
+                    subscriptionId, sensorId, e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
      * Gets events for a specific device in a date range.
      *
      * @param deviceId The device ID

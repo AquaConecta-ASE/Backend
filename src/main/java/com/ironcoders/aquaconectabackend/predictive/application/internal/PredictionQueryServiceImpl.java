@@ -5,6 +5,7 @@ import com.ironcoders.aquaconectabackend.predictive.domain.model.aggregates.Wate
 import com.ironcoders.aquaconectabackend.predictive.domain.model.queries.GetConsumptionHistoryQuery;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.queries.GetLatestPredictionQuery;
 import com.ironcoders.aquaconectabackend.predictive.domain.model.queries.GetPredictionByResidentIdQuery;
+import com.ironcoders.aquaconectabackend.predictive.domain.model.queries.GetPredictionHistoryBySubscriptionQuery;
 import com.ironcoders.aquaconectabackend.predictive.domain.services.PredictionQueryService;
 import com.ironcoders.aquaconectabackend.predictive.infrastructure.persistence.jpa.repositories.ConsumptionPredictionRepository;
 import com.ironcoders.aquaconectabackend.predictive.infrastructure.persistence.jpa.repositories.WaterConsumptionRepository;
@@ -49,20 +50,20 @@ public class PredictionQueryServiceImpl implements PredictionQueryService {
     }
 
     /**
-     * Gets the latest VALID prediction for a resident.
+     * PRIMARY: Gets the latest VALID prediction for a subscription.
      * Valid = ACTIVE status AND less than 24 hours old.
      *
-     * @param query Query containing resident ID
+     * @param query Query containing subscriptionId
      * @return Optional containing the latest valid prediction
      */
     @Override
     public Optional<ConsumptionPrediction> handle(GetLatestPredictionQuery query) {
-        log.debug("Getting latest valid prediction for resident: {}", query.residentId());
+        log.debug("Getting latest valid prediction for subscription: {}", query.subscriptionId());
 
-        // Try to find active prediction
+        // Try to find active prediction for this subscription
         Optional<ConsumptionPrediction> prediction =
-                predictionRepository.findFirstByResidentIdAndStatusOrderByPredictionDateDesc(
-                        query.residentId(),
+                predictionRepository.findFirstBySubscriptionIdAndStatusOrderByPredictionDateDesc(
+                        query.subscriptionId(),
                         ConsumptionPrediction.PredictionStatus.ACTIVE
                 );
 
@@ -71,35 +72,52 @@ public class PredictionQueryServiceImpl implements PredictionQueryService {
             ConsumptionPrediction pred = prediction.get();
 
             if (pred.isValid()) {
-                log.debug("Found valid prediction for resident: {} (generated at: {})",
-                        query.residentId(), pred.getPredictionDate());
+                log.debug("Found valid prediction for subscription: {} (generated at: {})",
+                        query.subscriptionId(), pred.getPredictionDate());
                 return prediction;
             } else {
-                log.debug("Prediction found but is outdated (older than 24h) for resident: {}",
-                        query.residentId());
+                log.debug("Prediction found but is outdated (older than 24h) for subscription: {}",
+                        query.subscriptionId());
                 return Optional.empty();
             }
         }
 
-        log.debug("No valid prediction found for resident: {}", query.residentId());
+        log.debug("No valid prediction found for subscription: {}", query.subscriptionId());
         return Optional.empty();
     }
 
     /**
-     * Gets consumption history for a resident in a date range.
+     * PRIMARY: Gets consumption history for a subscription in a date range.
      *
-     * @param query Query containing resident ID, start date, and end date
+     * @param query Query containing subscriptionId, start date, and end date
      * @return List of WaterConsumption records ordered by date
      */
     @Override
     public List<WaterConsumption> handle(GetConsumptionHistoryQuery query) {
-        log.debug("Getting consumption history for resident: {} from {} to {}",
-                query.residentId(), query.startDate(), query.endDate());
+        log.debug("Getting consumption history for subscription: {} from {} to {}",
+                query.subscriptionId(), query.startDate(), query.endDate());
 
-        return consumptionRepository.findByResidentIdAndDateBetweenOrderByDateAsc(
-                query.residentId(),
+        return consumptionRepository.findBySubscriptionIdAndDateBetweenOrderByDateAsc(
+                query.subscriptionId(),
                 query.startDate(),
                 query.endDate()
+        );
+    }
+
+    /**
+     * Gets all prediction history for a subscription (regardless of status).
+     * Returns predictions ordered by date descending (newest first).
+     * Useful for providers to see complete prediction history.
+     *
+     * @param query Query containing subscriptionId
+     * @return List of all ConsumptionPrediction records for the subscription
+     */
+    @Override
+    public List<ConsumptionPrediction> handle(GetPredictionHistoryBySubscriptionQuery query) {
+        log.debug("Getting prediction history for subscription: {}", query.subscriptionId());
+
+        return predictionRepository.findBySubscriptionIdOrderByPredictionDateDesc(
+                query.subscriptionId()
         );
     }
 }

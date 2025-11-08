@@ -45,46 +45,68 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
      * - Converts to liters using waterTankSize
      * - Formula: liters = (percentage / 100) * waterTankSize
      * 
-     * @param command The command with resident ID and date range
+     * PRIMARY: Uses subscriptionId to calculate consumption for a specific subscription.
+     * 
+     * @param command The command with subscriptionId, residentId, and date range
      * @return List of calculated and persisted WaterConsumption records
      */
     @Override
     @Transactional
     public List<WaterConsumption> handle(CalculateDailyConsumptionCommand command) {
         try {
-            log.info("Starting consumption calculation for resident: {} from {} to {}", 
-                command.residentId(), command.startDate(), command.endDate());
+            log.info("Starting consumption calculation for subscription: {} (resident: {}) from {} to {}", 
+                command.subscriptionId(), command.residentId(), command.startDate(), command.endDate());
 
             // 1. Validate command
             command.validate();
 
-            // 2. Get water tank size (needed to convert percentage to liters)
+            // 2. Validate subscription belongs to resident
+            if (!subscriptionContextFacade.isSubscriptionOwnedByResident(
+                    command.subscriptionId(), command.residentId())) {
+                log.error("Subscription {} does not belong to resident {}", 
+                    command.subscriptionId(), command.residentId());
+                return Collections.emptyList();
+            }
+
+            // 3. Get sensor ID for this subscription
+            Optional<Long> sensorIdOpt = subscriptionContextFacade.getSensorIdBySubscription(
+                command.subscriptionId());
+            
+            if (sensorIdOpt.isEmpty()) {
+                log.error("No sensor found for subscription: {}", command.subscriptionId());
+                return Collections.emptyList();
+            }
+            
+            Long sensorId = sensorIdOpt.get();
+
+            // 4. Get water tank size (needed to convert percentage to liters)
             Double waterTankSize = subscriptionContextFacade
-                .getWaterTankSizeByResidentId(command.residentId())
+                .getWaterTankSizeBySubscription(command.subscriptionId())
                 .orElse(1000.0); // Default 1000L if not found
             
-            log.info("Water tank size for resident {}: {} liters", 
-                command.residentId(), waterTankSize);
+            log.info("Subscription {}: sensor={}, tankSize={} liters", 
+                command.subscriptionId(), sensorId, waterTankSize);
 
-            // 3. Get events from Monitoring BC (via ACL)
-            List<EventDTO> events = monitoringContextFacade.getEventsByResidentId(
-                command.residentId(),
+            // 5. Get events from Monitoring BC (via ACL) - using subscription context
+            List<EventDTO> events = monitoringContextFacade.getEventsBySubscriptionId(
+                command.subscriptionId(),
+                sensorId,
                 command.startDate(),
                 command.endDate()
             );
 
             if (events.isEmpty()) {
-                log.warn("No events found for resident: {} in date range", command.residentId());
+                log.warn("No events found for subscription: {} in date range", command.subscriptionId());
                 return Collections.emptyList();
             }
 
-            log.info("Found {} events for resident: {}", events.size(), command.residentId());
+            log.info("Found {} events for subscription: {}", events.size(), command.subscriptionId());
 
-            // 4. Group events by date
+            // 6. Group events by date
             Map<LocalDate, List<EventDTO>> eventsByDate = events.stream()
                 .collect(Collectors.groupingBy(EventDTO::getDate));
 
-            // 5. Calculate consumption for each day (with update support)
+            // 7. Calculate consumption for each day (with update support)
             List<WaterConsumption> consumptionsToSave = new ArrayList<>();
             int newCount = 0;
             int updatedCount = 0;
@@ -93,9 +115,10 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
                 LocalDate date = entry.getKey();
                 List<EventDTO> dayEvents = entry.getValue();
 
-                // Check if consumption already exists for this day
+                // Check if consumption already exists for this day (using subscriptionId)
                 Optional<WaterConsumption> existingConsumption = 
-                    waterConsumptionRepository.findByResidentIdAndDate(command.residentId(), date);
+                    waterConsumptionRepository.findBySubscriptionIdAndDate(
+                        command.subscriptionId(), date);
 
                 // Sort events by timestamp to get first and last
                 dayEvents.sort(Comparator.comparing(EventDTO::getTimestamp));
@@ -136,11 +159,12 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
                     
                     consumptionsToSave.add(consumption);
                     updatedCount++;
-                    log.info("♻️ Updated consumption for resident: {} on date: {} (refill: {})", 
-                        command.residentId(), date, hasRefill);
+                    log.info("♻️ Updated consumption for subscription: {} on date: {} (refill: {})", 
+                        command.subscriptionId(), date, hasRefill);
                 } else {
                     // CREATE new consumption
                     Optional<WaterConsumption> newConsumption = calculateDailyConsumption(
+                        command.subscriptionId(),
                         command.residentId(),
                         date,
                         dayEvents,
@@ -150,30 +174,30 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
                     if (newConsumption.isPresent()) {
                         consumptionsToSave.add(newConsumption.get());
                         newCount++;
-                        log.info("✨ Created new consumption for resident: {} on date: {}", 
-                            command.residentId(), date);
+                        log.info("✨ Created new consumption for subscription: {} on date: {}", 
+                            command.subscriptionId(), date);
                     }
                 }
             }
 
-            // 6. Save all consumption records (new + updated)
+            // 8. Save all consumption records (new + updated)
             if (!consumptionsToSave.isEmpty()) {
                 waterConsumptionRepository.saveAll(consumptionsToSave);
-                log.info("💾 Saved {} consumption records for resident: {} (new: {}, updated: {})", 
-                    consumptionsToSave.size(), command.residentId(), newCount, updatedCount);
+                log.info("💾 Saved {} consumption records for subscription: {} (new: {}, updated: {})", 
+                    consumptionsToSave.size(), command.subscriptionId(), newCount, updatedCount);
             } else {
-                log.info("No consumption records to save for resident: {}", command.residentId());
+                log.info("No consumption records to save for subscription: {}", command.subscriptionId());
             }
 
-            // 7. Return all consumption data (existing + new) for the date range
-            return waterConsumptionRepository.findByResidentIdAndDateBetweenOrderByDateAsc(
-                command.residentId(),
+            // 9. Return all consumption data (existing + new) for the date range
+            return waterConsumptionRepository.findBySubscriptionIdAndDateBetweenOrderByDateAsc(
+                command.subscriptionId(),
                 command.startDate(),
                 command.endDate()
             );
 
         } catch (Exception e) {
-            log.error("Error calculating consumption for resident: {}", command.residentId(), e);
+            log.error("Error calculating consumption for subscription: {}", command.subscriptionId(), e);
             return Collections.emptyList();
         }
     }
@@ -186,17 +210,21 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
      * - Convert to liters: liters = (percentage / 100) * waterTankSize
      * - Calculate consumption: consumption = initialLiters - finalLiters
      * 
-     * @param residentId The resident ID
+     * PRIMARY: Uses subscriptionId for consumption tracking.
+     * 
+     * @param subscriptionId The subscription ID
+     * @param residentId The resident ID (for logging)
      * @param date The date to calculate
      * @param events List of events for that day
      * @param waterTankSize Capacity of the water tank in liters
      * @return Optional containing the calculated WaterConsumption
      */
     private Optional<WaterConsumption> calculateDailyConsumption(
+            Long subscriptionId,
             Long residentId,
             LocalDate date,
             List<EventDTO> events,
-            Double waterTankSize) {  // ← NUEVO parámetro
+            Double waterTankSize) {
         
         if (events.isEmpty()) {
             return Optional.empty();
@@ -231,14 +259,15 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
                 // (We don't count refills as consumption)
                 consumption = 0.0;
 
-                log.info("🔄 REFILL detected for resident {} on {}: {}% → {}% ({}L → {}L)",
-                    residentId, date, initialPercentage, finalPercentage, initialLiters, finalLiters);
+                log.info("🔄 REFILL detected for subscription {} (resident {}) on {}: {}% → {}% ({}L → {}L)",
+                    subscriptionId, residentId, date, initialPercentage, finalPercentage, 
+                    initialLiters, finalLiters);
             } else {
                 // Normal consumption: water level decreased
                 consumption = Math.abs(initialLiters - finalLiters);
 
-                log.debug("✅ Normal consumption for resident {} on {}: {} L ({}% to {}%)",
-                    residentId, date, consumption, initialPercentage, finalPercentage);
+                log.debug("✅ Normal consumption for subscription {} (resident {}) on {}: {} L ({}% to {}%)",
+                    subscriptionId, residentId, date, consumption, initialPercentage, finalPercentage);
             }
 
             // Get most common water quality for the day
@@ -247,9 +276,10 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
             // Get device ID from first event
             Long deviceId = firstEvent.getDeviceId();
 
-            // Create WaterConsumption entity
+            // Create WaterConsumption entity with subscriptionId
             WaterConsumption waterConsumption = new WaterConsumption(
-                residentId,
+                subscriptionId,   // PRIMARY identifier
+                residentId,       // SECONDARY identifier (for cross-subscription queries)
                 date,
                 consumption,
                 deviceId,
@@ -259,8 +289,8 @@ public class ConsumptionCalculationServiceImpl implements ConsumptionCalculation
                 isRefill          // NUEVO: marcar si fue un refill
             );
 
-            log.debug("Calculated consumption for resident: {} on {}: {} L ({}% to {}% of {} L tank)",
-                residentId, date, consumption, initialPercentage, finalPercentage, waterTankSize);
+            log.debug("Calculated consumption for subscription: {} on {}: {} L ({}% to {}% of {} L tank)",
+                subscriptionId, date, consumption, initialPercentage, finalPercentage, waterTankSize);
 
             return Optional.of(waterConsumption);
 

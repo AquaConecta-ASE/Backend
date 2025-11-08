@@ -14,6 +14,16 @@ import java.time.LocalDate;
 @Table(name = "water_consumptions")
 public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsumption> {
 
+    /**
+     * ID of the subscription (primary identifier)
+     * Each subscription represents one water tank/sensor
+     */
+    @Column(nullable = false, name = "subscription_id")
+    private Long subscriptionId;
+
+    /**
+     * ID of the resident (kept for secondary queries)
+     */
     @Column(nullable = false, name = "resident_id")
     private Long residentId;
 
@@ -58,9 +68,10 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
     public WaterConsumption() {
     }
 
-    public WaterConsumption(Long residentId, LocalDate date, Double consumption,
+    public WaterConsumption(Long subscriptionId, Long residentId, LocalDate date, Double consumption,
                             Long deviceId, Double initialLevel, Double finalLevel,
                             String waterQuality, Boolean isRefill) {
+        this.subscriptionId = subscriptionId;
         this.residentId = residentId;
         this.date = date;
         this.consumption = consumption;
@@ -71,10 +82,10 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
         this.isRefill = isRefill;
     }
 
-    public WaterConsumption(Long residentId, LocalDate date, Double consumption, 
+    public WaterConsumption(Long subscriptionId, Long residentId, LocalDate date, Double consumption, 
                            Long deviceId, Double initialLevel, Double finalLevel, 
                            String waterQuality) {
-        this(residentId, date, consumption, deviceId, initialLevel, finalLevel, waterQuality, false);
+        this(subscriptionId, residentId, date, consumption, deviceId, initialLevel, finalLevel, waterQuality, false);
     }
 
     /**

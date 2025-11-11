@@ -52,4 +52,8 @@ public class Role {
     public Long getId() {
         return id;
     }
+
+    public Roles getName() {
+        return name;
+    }
 }

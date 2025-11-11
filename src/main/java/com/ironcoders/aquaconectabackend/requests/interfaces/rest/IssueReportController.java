@@ -1,5 +1,5 @@
 package com.ironcoders.aquaconectabackend.requests.interfaces.rest;
-import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
+import com.ironcoders.aquaconectabackend.iam.infrastructure.persistence.jpa.repositories.UserRepository;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Provider;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.acl.ProviderContextFacade.ProviderContextFacade;
 import com.ironcoders.aquaconectabackend.requests.domain.model.aggregates.IssueReport;
@@ -39,11 +39,13 @@ public class IssueReportController {
     private final IssueReportCommandService requestCommandService;
     private final IssueReportQueryService requestQueryService;
     private final ProviderContextFacade providerContextFacade;
+    private final UserRepository userRepository;
 
-    public IssueReportController(IssueReportCommandService requestCommandService, IssueReportQueryService requestQueryService, ProviderContextFacade providerContextFacade) {
+    public IssueReportController(IssueReportCommandService requestCommandService, IssueReportQueryService requestQueryService, ProviderContextFacade providerContextFacade, UserRepository userRepository) {
         this.requestCommandService = requestCommandService;
         this.requestQueryService = requestQueryService;
         this.providerContextFacade = providerContextFacade;
+        this.userRepository = userRepository;
     }
 
     @PostMapping
@@ -52,8 +54,13 @@ public class IssueReportController {
         // Get the user ID from the security context
 
           Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = userOptional.get().getId();
 
 
         CreateIssueReportCommand createRequestCommand = CreateIssueReportCommandFromResourceAssembler.toCommandFromResource(resource, userId);
@@ -70,8 +77,13 @@ public class IssueReportController {
             @PathVariable Long id,
             @RequestBody UpdateIssueReportResource resource) throws AccessDeniedException {
           Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = userOptional.get().getId();
 
         UpdateIssueReportCommand command = UpdateIssueReportCommandFromResource.toCommandFromResource(id, resource, userId);
 
@@ -101,8 +113,13 @@ public class IssueReportController {
     @PreAuthorize("hasRole('ROLE_ADMIN') or hasRole('ROLE_PROVIDER')")
     public ResponseEntity<List<IssueReport>> getAllRequests() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        long userId = userOptional.get().getId();
 
         boolean isAdmin = authentication.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));

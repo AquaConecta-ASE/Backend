@@ -6,9 +6,7 @@ import com.ironcoders.aquaconectabackend.shared.domain.model.aggregates.Auditabl
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import lombok.Getter;
 
-@Getter
 @Entity
 public class Provider extends AuditableAbstractAggregateRoot<Provider> {
     @Column(nullable = false)
@@ -40,7 +38,21 @@ public class Provider extends AuditableAbstractAggregateRoot<Provider> {
         this.ruc = command.ruc();
     }
 
+    // Explicit getters (Lombok not working properly)
+    public String getTaxName() {
+        return taxName;
+    }
 
+    public String getRuc() {
+        return ruc;
+    }
 
+    public Long getUserId() {
+        return userId;
+    }
 
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 }

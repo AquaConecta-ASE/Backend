@@ -2,7 +2,7 @@ package com.ironcoders.aquaconectabackend.profiles.interfaces.rest;
 
 // import com.fasterxml.jackson.databind.introspect.AccessorNamingStrategy.Provider;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Provider;
-import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
+import com.ironcoders.aquaconectabackend.iam.infrastructure.persistence.jpa.repositories.UserRepository;
 import com.ironcoders.aquaconectabackend.iam.interfaces.acl.IamContextFacade;
 import com.ironcoders.aquaconectabackend.monitoring.domain.model.queries.GetAllDevicesByResidentId;
 import com.ironcoders.aquaconectabackend.monitoring.interfaces.rest.acl.DeviceContextFacade;
@@ -71,6 +71,7 @@ public class ResidentController {
     private final ResidentRepository residentRepository;
     private final ProviderQueryService providerQueryService;
     private final ProfileQueryService profileQueryService;
+    private final UserRepository userRepository;
 
     IamContextFacade iamContextFacade;
     WaterSupplyRequestContextFacade waterSupplyRequestContextFacade;
@@ -91,6 +92,7 @@ public class ResidentController {
      * @param issueReportContextFacade Facade for issue reports
      * @param deviceContextFacade Facade for device context
      * @param subscriptionContextFacade Facade for subscription context
+     * @param userRepository Repository for user queries
      */
     public ResidentController(
             ResidentCommandService residentCommandService,
@@ -103,7 +105,8 @@ public class ResidentController {
             ProfileQueryService profileQueryService,
             IssueReportContextFacade issueReportContextFacade,
             DeviceContextFacade deviceContextFacade,
-            SubscriptionContextFacade subscriptionContextFacade
+            SubscriptionContextFacade subscriptionContextFacade,
+            UserRepository userRepository
     ) {
         this.residentCommandService = residentCommandService;
         this.residentQueryService = residentQueryService;
@@ -115,6 +118,7 @@ public class ResidentController {
         this.issueReportContextFacade = issueReportContextFacade;
         this.deviceContextFacade = deviceContextFacade;
         this.subscriptionContextFacade = subscriptionContextFacade;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -126,10 +130,15 @@ public class ResidentController {
     @PostMapping
     @PreAuthorize("hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
     public ResponseEntity<ResidentResource> createResident(@RequestBody CreateResidentResource resource) throws AccessDeniedException {
-        // Get authenticated user id
+        // Get authenticated user id from JWT
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = userOptional.get().getId();
 
         // Convert the resource to a command, passing the authenticated user id
         CreateResidentCommand command = CreateResidentCommandFromResourceAssembler.toCommandFromResource(resource, userId);
@@ -213,8 +222,13 @@ public class ResidentController {
     @PreAuthorize("hasRole('ROLE_PROVIDER')")
     public List<WaterSupplyRequestResource> getWaterRequestsByResident(@PathVariable Long residentId) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found");
+        }
+        long userId = userOptional.get().getId();
 
         final Long providerId;
 
@@ -250,8 +264,13 @@ public class ResidentController {
     @PreAuthorize("hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
     public ResponseEntity<List<ResidentResource>> getResidentsForAuthenticatedProviderOrAdmin() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        long userId = userOptional.get().getId();
 
         boolean isAdmin = authentication.getAuthorities().stream()
             .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
@@ -289,29 +308,82 @@ public class ResidentController {
     }
 
     /**
-     * Endpoint to get the authenticated resident's profile.
-     * Only accessible by RESIDENT role.
+     * Endpoint to get the resident profile for the currently authenticated user.
+     * Extracts user information from JWT token automatically.
+     * Accessible by RESIDENT role.
+     * @return ResponseEntity with the resident resource or NOT_FOUND if not found
+     */
+    @GetMapping("/me/profile")
+    @PreAuthorize("hasRole('ROLE_RESIDENT')")
+    public ResponseEntity<ResidentResource> getMyResidentProfile() {
+        // Obtener el usuario autenticado desde el JWT
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        
+        // Extraer el auth0Id del JWT (el "sub" claim)
+        String auth0Id = authentication.getName();
+        
+        // Buscar el usuario en la BD local por auth0Id
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        
+        long userId = userOptional.get().getId();
+
+        // Obtener el resident a partir del userId
+        List<Resident> residentList = residentQueryService.findByUserId(userId);
+        if (residentList.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Resident resident = residentList.get(0);
+        
+        // Obtener el perfil asociado
+        Optional<Profile> profileOptional = profileQueryService.handle(new GetProfileByUserIdQuery(userId));
+        if (profileOptional.isEmpty()) {
+            return ResponseEntity.internalServerError().build();
+        }
+
+        // Obtener el username del contexto IAM
+        String username = iamContextFacade.fetchUsernameByUserId(userId);
+        
+        ResidentResource resource = ResidentResourceFromEntityAssembler
+                .toResourceFromEntityWithCredentials(resident, username, null, profileOptional.get());
+
+        return ResponseEntity.ok(resource);
+    }
+
+    /**
+     * Endpoint to get resident profile by resident ID.
+     * Accessible by PROVIDER, ADMIN, and RESIDENT roles.
+     * @param residentId The ID of the resident
      * @return ResponseEntity with the resident resource or NOT_FOUND if not found
      */
     @GetMapping("/{residentId}/profiles")
-    @PreAuthorize("hasRole('ROLE_RESIDENT')")
-    public ResponseEntity<ResidentResource> getAuthenticatedResident() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
-
-        List<Resident> residentOptional = residentQueryService.findByUserId(userId);
+    @PreAuthorize("hasRole('ROLE_RESIDENT') or hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ResidentResource> getResidentProfileById(@PathVariable Long residentId) {
+        // Buscar el resident por su ID
+        Optional<Resident> residentOptional = residentQueryService.findById(residentId);
+        
         if (residentOptional.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
-        Resident resident = residentOptional.get(0);
+        Resident resident = residentOptional.get();
+        long userId = resident.getUserId();
+
+        // Obtener el perfil asociado
+        Optional<Profile> profileOptional = profileQueryService.handle(new GetProfileByUserIdQuery(userId));
+        if (profileOptional.isEmpty()) {
+            return ResponseEntity.internalServerError().build();
+        }
+
+        // Obtener el username del contexto IAM
         String username = iamContextFacade.fetchUsernameByUserId(userId);
-        List<Profile> profiles = profileQueryService.handle(new GetProfileByUserIdQuery(userId))
-                .stream()
-                .collect(Collectors.toList());
+        
         ResidentResource resource = ResidentResourceFromEntityAssembler
-                .toResourceFromEntityWithCredentials(resident, username, null, profiles.get(0));
+                .toResourceFromEntityWithCredentials(resident, username, null, profileOptional.get());
 
         return ResponseEntity.ok(resource);
     }
@@ -348,8 +420,13 @@ public class ResidentController {
     @PreAuthorize("hasRole('ROLE_RESIDENT')")
     public ResponseEntity<ResidentResource> updateResident(@RequestBody UpdateResidentResource resource) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        long userId = userOptional.get().getId();
 
         UpdateResidentCommand updateResidentCommand = UpdateResidentCommandFromResource.toCommandFromResource(resource, userId);
         Optional<Resident> updatedResidentOptional = residentCommandService.handle(updateResidentCommand);

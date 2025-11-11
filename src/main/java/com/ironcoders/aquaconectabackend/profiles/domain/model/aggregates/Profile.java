@@ -7,9 +7,7 @@ import com.ironcoders.aquaconectabackend.shared.domain.model.aggregates.Auditabl
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
-import lombok.Getter;
 
-@Getter
 @Entity
 public class Profile extends AuditableAbstractAggregateRoot<Profile> {
     @Embedded
@@ -86,4 +84,33 @@ public class Profile extends AuditableAbstractAggregateRoot<Profile> {
         this.name = name;
     }
 
+    // Explicit getters (Lombok not working properly)
+    public PersonName getName() {
+        return name;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public String getDirection() {
+        return direction;
+    }
+
+    public String getDocumentNumber() {
+        return documentNumber;
+    }
+
+    public String getDocumentType() {
+        return documentType;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 }

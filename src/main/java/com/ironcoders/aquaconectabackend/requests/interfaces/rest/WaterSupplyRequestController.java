@@ -1,6 +1,6 @@
 package com.ironcoders.aquaconectabackend.requests.interfaces.rest;
 
-import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
+import com.ironcoders.aquaconectabackend.iam.infrastructure.persistence.jpa.repositories.UserRepository;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Provider;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Resident;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.acl.ProviderContextFacade.ProviderContextFacade;
@@ -46,20 +46,27 @@ public class WaterSupplyRequestController {
     private final WaterSupplyRequestQueryService waterRequestQueryService;
     private final ResidentContextFacade residentContextFacade;
     private final ProviderContextFacade providerContextFacade;
+    private final UserRepository userRepository;
 
-    public WaterSupplyRequestController(WaterSupplyRequestCommandService waterRequestCommandService, WaterSupplyRequestQueryService waterRequestQueryService, ResidentContextFacade residentContextFacade, ProviderContextFacade providerContextFacade) {
+    public WaterSupplyRequestController(WaterSupplyRequestCommandService waterRequestCommandService, WaterSupplyRequestQueryService waterRequestQueryService, ResidentContextFacade residentContextFacade, ProviderContextFacade providerContextFacade, UserRepository userRepository) {
         this.waterRequestCommandService = waterRequestCommandService;
         this.waterRequestQueryService = waterRequestQueryService;
         this.residentContextFacade = residentContextFacade;
         this.providerContextFacade = providerContextFacade;
+        this.userRepository = userRepository;
     }
 
     @GetMapping
     @PreAuthorize("hasRole('ROLE_RESIDENT') or hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
     public List<WaterSupplyRequestResource> getAllMyWaterRequests() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Long userId = userOptional.get().getId();
 
         boolean isResident = authentication.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_RESIDENT"));
@@ -110,8 +117,13 @@ public class WaterSupplyRequestController {
     public ResponseEntity<WaterSupplyRequestResource> getWaterRequestById(@PathVariable Long id) {
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = userOptional.get().getId();
 
         Optional<WaterSupplyRequest> requestOptional = waterRequestQueryService.handle(new GetWaterSupplyRequestByIdQuery(id));
         if (requestOptional.isEmpty()) {
@@ -147,8 +159,13 @@ public class WaterSupplyRequestController {
     public ResponseEntity<WaterSupplyRequestResource> createWaterRequest(@RequestBody CreateWaterRequestResource resource) throws AccessDeniedException {
         // Get the user ID from the security context
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = userOptional.get().getId();
 
 
         CreateWaterSupplyRequestCommand command = CreateWaterSupplyRequestCommandFromResourceAssembler.toCommandFromResource(resource, userId);
@@ -166,8 +183,13 @@ public class WaterSupplyRequestController {
             @RequestBody UpdateWaterResource resource) throws AccessDeniedException {
 
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-                    UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-                    Long userId = userDetails.getId();
+            String auth0Id = authentication.getName();
+            
+            var userOptional = userRepository.findByAuth0Id(auth0Id);
+            if (userOptional.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+            Long userId = userOptional.get().getId();
 
         UpdateWaterSupplyRequestCommand command = UpdateWaterSupplyRequestCommandFromResource.toCommandFromResource(id, resource, userId);
 

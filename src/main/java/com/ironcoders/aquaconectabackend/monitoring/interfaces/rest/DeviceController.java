@@ -70,17 +70,17 @@ public class DeviceController {
      */
     @GetMapping("/{id}/events")
     public ResponseEntity<List<EventResource>> getEventsBySensorId(@PathVariable Long id) {
-        LOGGER.info("📊 Obteniendo eventos para device ID: {}", id);
+        LOGGER.info("Obteniendo eventos para device ID: {}", id);
         
         var events = eventQueryService.handle(new GetAllEventsBySensorId(id));
-        LOGGER.info("✅ Eventos encontrados: {}", events.size());
+        LOGGER.info("Eventos encontrados: {}", events.size());
         
         var resources = events.stream()
                 .map(EventResourceFromEntityAssembler::toResourceFromEntity)
                 .collect(Collectors.toList());
         
-        LOGGER.info("📦 Recursos creados: {}", resources.size());
-        LOGGER.info("🚀 Devolviendo respuesta 200 OK con {} eventos", resources.size());
+        LOGGER.info("Recursos creados: {}", resources.size());
+        LOGGER.info("Devolviendo respuesta 200 OK con {} eventos", resources.size());
         
         return ResponseEntity.ok(resources);
     }

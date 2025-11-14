@@ -13,7 +13,7 @@ public class Resident extends AuditableAbstractAggregateRoot<Resident> {
     private String firstName;
     @Column(nullable = false)
     private String lastName;
-    @Column(nullable = false)
+    @Column(nullable = true) // Can be null until first login
     private Long userId;
     @Column(nullable = false)
     private Long providerId;
@@ -58,6 +58,10 @@ public class Resident extends AuditableAbstractAggregateRoot<Resident> {
 
     public Long getProviderId() {
         return providerId;
+    }
+    
+    public void setUserId(Long userId) {
+        this.userId = userId;
     }
 
     @Override

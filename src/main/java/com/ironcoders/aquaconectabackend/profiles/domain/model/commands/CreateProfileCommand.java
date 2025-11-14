@@ -13,7 +13,7 @@ public record CreateProfileCommand(String firstName, String lastName, String ema
         Objects.requireNonNull(documentNumber, "documentNumber cannot be null");
         Objects.requireNonNull(documentType, "documentType cannot be null");
         Objects.requireNonNull(phone, "phone cannot be null");
-        Objects.requireNonNull(userId, "userId cannot be null");
+        // userId can be null - will be set on first login
     }
 
 

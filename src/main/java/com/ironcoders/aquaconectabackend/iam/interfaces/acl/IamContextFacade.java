@@ -59,6 +59,34 @@ public class IamContextFacade {
         if (result.isEmpty()) return 0L;
         return result.get().getId();
     }
+    
+    /**
+     * Creates a user with the given details and also creates the user in Auth0 with roles in app_metadata.
+     * This method is used when creating residents or providers that need Auth0 authentication.
+     * 
+     * @param username The username of the user.
+     * @param password The password of the user (for local DB, not used in Auth0).
+     * @param email The email of the user (required for Auth0).
+     * @param firstName The first name of the user.
+     * @param lastName The last name of the user.
+     * @param roleNames The names of the roles of the user.
+     * @param providerId The provider ID (optional, for residents).
+     * @return The id of the created user.
+     */
+    public Long createUserWithAuth0(
+            String username, 
+            String password, 
+            String email,
+            String firstName,
+            String lastName,
+            List<String> roleNames,
+            Long providerId) {
+        var roles = roleNames != null ? roleNames.stream().map(Role::toRoleFromName).toList() : new ArrayList<Role>();
+        var signUpCommand = new SignUpCommand(username, password, roles, email, firstName, lastName, providerId);
+        var result = userCommandService.handle(signUpCommand);
+        if (result.isEmpty()) return 0L;
+        return result.get().getId();
+    }
 
     /**
      * Fetches the id of the user with the given username.

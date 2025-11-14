@@ -5,6 +5,7 @@ import com.ironcoders.aquaconectabackend.subcriptions.domain.model.commands.Crea
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.queries.GetAllSubscriptionsByResidentId;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.services.subscription.SubscriptionCommandService;
 import com.ironcoders.aquaconectabackend.subcriptions.infrastructure.persistence.jpa.repositories.subscription.SubscriptionQueryService;
+import com.ironcoders.aquaconectabackend.subcriptions.infrastructure.persistence.jpa.repositories.subscription.SubscriptionRepository;
 
 import java.nio.file.AccessDeniedException;
 import java.util.List;
@@ -17,10 +18,15 @@ public class SubscriptionContextFacade {
 
     private final SubscriptionCommandService subscriptionCommandService;
     private final SubscriptionQueryService subscriptionQueryService;
+    private final SubscriptionRepository subscriptionRepository;
 
-    public SubscriptionContextFacade(SubscriptionCommandService subscriptionCommandService, SubscriptionQueryService subscriptionQueryService) {
+    public SubscriptionContextFacade(
+            SubscriptionCommandService subscriptionCommandService, 
+            SubscriptionQueryService subscriptionQueryService,
+            SubscriptionRepository subscriptionRepository) {
         this.subscriptionCommandService = subscriptionCommandService;
-        this.subscriptionQueryService = subscriptionQueryService;       
+        this.subscriptionQueryService = subscriptionQueryService;
+        this.subscriptionRepository = subscriptionRepository;
     }
 
     /**
@@ -31,6 +37,16 @@ public class SubscriptionContextFacade {
      */
     public Optional<Subscription> createSubscription(CreateSubscriptionCommand command) {
         return subscriptionCommandService.handle(command);
+    }
+    
+    /**
+     * Saves a subscription entity directly.
+     *
+     * @param subscription the subscription entity to save
+     * @return the saved Subscription
+     */
+    public Subscription saveSubscription(Subscription subscription) {
+        return subscriptionRepository.save(subscription);
     }
 
     /**

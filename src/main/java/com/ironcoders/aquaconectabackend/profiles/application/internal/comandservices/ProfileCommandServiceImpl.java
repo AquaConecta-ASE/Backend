@@ -24,10 +24,12 @@ public class ProfileCommandServiceImpl implements ProfileCommandService {
 
    @Override
     public Optional<Profile> handle(CreateProfileCommand command) {
-        // Check if a profile already exists for the user
-        List<Profile> existingProfile = profileRepository.findByUserId(command.userId());
-        if (!existingProfile.isEmpty()) {
-            throw new IllegalArgumentException("A profile already exists for this user");
+        // Check if a profile already exists for the user (only if userId is not null)
+        if (command.userId() != null) {
+            List<Profile> existingProfile = profileRepository.findByUserId(command.userId());
+            if (!existingProfile.isEmpty()) {
+                throw new IllegalArgumentException("A profile already exists for this user");
+            }
         }
 
         List<Profile> profilesByEmail = profileRepository.findByEmail(command.email());

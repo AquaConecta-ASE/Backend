@@ -1,15 +1,24 @@
 package com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.auth0.interceptor;
 
+import com.ironcoders.aquaconectabackend.iam.domain.model.aggregates.User;
 import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.auth0.services.Auth0UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Interceptor que sincroniza automáticamente los usuarios de Auth0 con la base de datos local
@@ -52,14 +61,35 @@ public class Auth0UserSyncInterceptor implements HandlerInterceptor {
         
         // Solo sincronizar si hay un usuario autenticado con JWT
         if (authentication.isAuthenticated() && 
-            authentication instanceof JwtAuthenticationToken) {
+            authentication instanceof JwtAuthenticationToken jwtAuth) {
             
             LOGGER.info("🎫 Token JWT detectado, iniciando sincronización...");
             
             try {
                 // Sincronizar usuario de Auth0 con BD local
-                auth0UserService.syncUserFromAuth0(authentication);
+                User syncedUser = auth0UserService.syncUserFromAuth0(authentication);
                 LOGGER.info("✅ Usuario sincronizado desde Auth0 exitosamente");
+                
+                // Actualizar SecurityContext con los roles obtenidos de la BD
+                Collection<GrantedAuthority> authorities = syncedUser.getRoles().stream()
+                    .map(role -> new SimpleGrantedAuthority(role.getName().name()))
+                    .collect(Collectors.toList());
+                
+                // Crear nuevo JwtAuthenticationToken con las authorities actualizadas
+                Jwt jwt = jwtAuth.getToken();
+                JwtAuthenticationToken updatedAuth = new JwtAuthenticationToken(
+                    jwt, 
+                    authorities,
+                    jwt.getSubject()
+                );
+                
+                // Actualizar SecurityContext
+                SecurityContextHolder.getContext().setAuthentication(updatedAuth);
+                LOGGER.info("🔐 SecurityContext actualizado con roles: {}", 
+                    authorities.stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .collect(Collectors.toList()));
+                
             } catch (Exception e) {
                 LOGGER.error("❌ Error sincronizando usuario de Auth0: {}", e.getMessage(), e);
                 // Continuar con el request aunque falle la sincronización

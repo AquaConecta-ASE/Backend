@@ -6,11 +6,9 @@ import com.ironcoders.aquaconectabackend.subcriptions.domain.model.commands.Upda
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import lombok.Getter;
 
 import java.time.LocalDate;
 
-@Getter
 @Entity
 public class Subscription extends AuditableAbstractAggregateRoot<Subscription> {
 
@@ -64,17 +62,37 @@ public class Subscription extends AuditableAbstractAggregateRoot<Subscription> {
     public void setEndDate(LocalDate endDate) {
         this.endDate = endDate;
     }
+    
     public Float getWaterTankSize() {
         return waterTankSize;
     }
 
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 
+    public LocalDate getStartDate() {
+        return startDate;
+    }
 
+    public LocalDate getEndDate() {
+        return endDate;
+    }
 
+    public String getStatus() {
+        return status;
+    }
 
+    public Long getSensorId() {
+        return sensorId;
+    }
 
+    public Long getResidentId() {
+        return residentId;
+    }
 
-
-
-
+    public Long getProviderId() {
+        return providerId;
+    }
 }

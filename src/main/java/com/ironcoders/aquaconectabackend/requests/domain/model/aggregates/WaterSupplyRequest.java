@@ -3,10 +3,9 @@ package com.ironcoders.aquaconectabackend.requests.domain.model.aggregates;
 import com.ironcoders.aquaconectabackend.requests.domain.model.commands.CreateWaterSupplyRequestCommand;
 import com.ironcoders.aquaconectabackend.shared.domain.model.aggregates.AuditableAbstractAggregateRoot;
 import jakarta.persistence.*;
-import lombok.Getter;
 
 import java.time.LocalDateTime;
-@Getter
+
 @Entity
 public class WaterSupplyRequest extends AuditableAbstractAggregateRoot<WaterSupplyRequest> {
 
@@ -52,8 +51,37 @@ public class WaterSupplyRequest extends AuditableAbstractAggregateRoot<WaterSupp
         this.deliveredAt = deliveredAt;
         return this;
     }
+    
     public WaterSupplyRequest() {
     }
 
+    // Explicit getters
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 
+    public Long getResidentId() {
+        return residentId;
+    }
+
+    public Long getProviderId() {
+        return providerId;
+    }
+
+    public String getRequestedLiters() {
+        return requestedLiters;
+    }
+
+    public String getEmissionDate() {
+        return emissionDate;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public LocalDateTime getDeliveredAt() {
+        return deliveredAt;
+    }
 }

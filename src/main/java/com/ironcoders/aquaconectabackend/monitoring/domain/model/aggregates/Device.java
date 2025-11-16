@@ -4,9 +4,7 @@ import com.ironcoders.aquaconectabackend.monitoring.domain.model.commads.CreateD
 import com.ironcoders.aquaconectabackend.shared.domain.model.aggregates.AuditableAbstractAggregateRoot;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import lombok.Getter;
 
-@Getter
 @Entity
 public class Device extends AuditableAbstractAggregateRoot<Device> {
 
@@ -38,5 +36,26 @@ public class Device extends AuditableAbstractAggregateRoot<Device> {
 
     }
 
+    // Explicit getters
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 
+    public String getType() {
+        return type;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public Long getResidentId() {
+        return residentId;
+    }
 }
+

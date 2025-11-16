@@ -21,6 +21,8 @@
     <description>aquaconecta-platform</description>
 
     <properties>
+        <!-- Match Maven/JAVA_HOME runtime (Maven reports Java 22). If you prefer to compile with Java 23,
+             point your MAVEN/JAVA_HOME to a JDK 23 installation instead of changing the pom. -->
         <java.version>22</java.version>
         <maven.compiler.release>22</maven.compiler.release>
     </properties>
@@ -113,6 +115,34 @@
             <version>RELEASE</version>
             <scope>compile</scope>
         </dependency>
+
+        <!-- Auth0 JWT Validation -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+
+        <!-- Para poder parsear JWTs -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- Auth0 Management API (para crear usuarios desde backend) -->
+        <dependency>
+            <groupId>com.auth0</groupId>
+            <artifactId>auth0</artifactId>
+            <version>2.10.0</version>
+        </dependency>
+
+        <!-- Para trabajar con JWTs -->
+        <dependency>
+            <groupId>com.auth0</groupId>
+            <artifactId>java-jwt</artifactId>
+            <version>4.4.0</version>
+        </dependency>
+
+
     </dependencies>
 
     <build>

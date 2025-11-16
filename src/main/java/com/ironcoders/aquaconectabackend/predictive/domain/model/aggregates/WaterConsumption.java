@@ -5,11 +5,9 @@ import com.ironcoders.aquaconectabackend.shared.domain.model.aggregates.Auditabl
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import lombok.Getter;
 
 import java.time.LocalDate;
 
-@Getter
 @Entity
 @Table(name = "water_consumptions")
 public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsumption> {
@@ -165,4 +163,47 @@ public class WaterConsumption extends AuditableAbstractAggregateRoot<WaterConsum
     
     private static final org.slf4j.Logger log = 
         org.slf4j.LoggerFactory.getLogger(WaterConsumption.class);
+
+    // Explicit getters
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
+
+    public Long getSubscriptionId() {
+        return subscriptionId;
+    }
+
+    public Long getResidentId() {
+        return residentId;
+    }
+
+    public LocalDate getDate() {
+        return date;
+    }
+
+    public Double getConsumption() {
+        return consumption;
+    }
+
+    public Long getDeviceId() {
+        return deviceId;
+    }
+
+    public String getWaterQuality() {
+        return waterQuality;
+    }
+
+    public Double getInitialLevel() {
+        return initialLevel;
+    }
+
+    public Double getFinalLevel() {
+        return finalLevel;
+    }
+
+    public Boolean getIsRefill() {
+        return isRefill;
+    }
 }
+

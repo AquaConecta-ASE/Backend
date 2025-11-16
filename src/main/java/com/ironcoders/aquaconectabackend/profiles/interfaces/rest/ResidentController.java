@@ -2,7 +2,7 @@ package com.ironcoders.aquaconectabackend.profiles.interfaces.rest;
 
 // import com.fasterxml.jackson.databind.introspect.AccessorNamingStrategy.Provider;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Provider;
-import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
+import com.ironcoders.aquaconectabackend.iam.infrastructure.persistence.jpa.repositories.UserRepository;
 import com.ironcoders.aquaconectabackend.iam.interfaces.acl.IamContextFacade;
 import com.ironcoders.aquaconectabackend.monitoring.domain.model.queries.GetAllDevicesByResidentId;
 import com.ironcoders.aquaconectabackend.monitoring.interfaces.rest.acl.DeviceContextFacade;
@@ -14,6 +14,7 @@ import com.ironcoders.aquaconectabackend.profiles.domain.model.commands.CreateRe
 import com.ironcoders.aquaconectabackend.profiles.domain.model.commands.UpdateResidentCommand;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.dto.ResidentWithCredentials;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.queries.GetAllResidentsQuery;
+import com.ironcoders.aquaconectabackend.profiles.domain.model.queries.GetAllProfilesQuery;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.queries.GetProfileByUserIdQuery;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.queries.GetResidentsByProviderIdQuery;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.queries.GetWaterRequestsByResidentIdQuery;
@@ -26,6 +27,8 @@ import com.ironcoders.aquaconectabackend.profiles.infrastructure.persistence.jpa
 import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.resources.CreateResidentResource;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.resources.ResidentResource;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.resources.UpdateResidentResource;
+import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.resources.CreateCompleteResidentResource;
+import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.resources.CompleteResidentResource;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.transform.CreateResidentCommandFromResourceAssembler;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.transform.ResidentResourceFromEntityAssembler;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.transform.UpdateResidentCommandFromResource;
@@ -38,8 +41,22 @@ import com.ironcoders.aquaconectabackend.subcriptions.domain.model.queries.GetAl
 import com.ironcoders.aquaconectabackend.subcriptions.interfaces.acl.SubscriptionContextFacade;
 import com.ironcoders.aquaconectabackend.subcriptions.interfaces.rest.resources.SubscriptionResource;
 import com.ironcoders.aquaconectabackend.subcriptions.interfaces.rest.transform.SubscriptionResourceFromEntityAssembler;
+import com.ironcoders.aquaconectabackend.shared.Infrastructure.auth0.Auth0ManagementService;
+import com.ironcoders.aquaconectabackend.monitoring.domain.model.commads.CreateDeviceCommand;
+import com.ironcoders.aquaconectabackend.monitoring.domain.services.DeviceCommandService;
+import com.ironcoders.aquaconectabackend.profiles.domain.model.commands.CreateProfileCommand;
+import com.ironcoders.aquaconectabackend.profiles.domain.services.ProfileCommandService;
+import com.ironcoders.aquaconectabackend.profiles.domain.model.valueobjects.PersonName;
+import com.ironcoders.aquaconectabackend.subcriptions.domain.services.subscription.SubscriptionCommandService;
+import com.ironcoders.aquaconectabackend.monitoring.domain.model.aggregates.Device;
+import com.ironcoders.aquaconectabackend.subcriptions.domain.model.aggregates.Subscription;
+import com.auth0.exception.Auth0Exception;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.auth0.exception.Auth0Exception;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.transaction.Transactional;
 
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -66,11 +83,18 @@ import java.util.List;
 @PreAuthorize("isAuthenticated()")
 public class ResidentController {
 
+    private static final Logger logger = LoggerFactory.getLogger(ResidentController.class);
+
     private final ResidentCommandService residentCommandService;
     private final ResidentQueryService residentQueryService;
     private final ResidentRepository residentRepository;
     private final ProviderQueryService providerQueryService;
     private final ProfileQueryService profileQueryService;
+    private final ProfileCommandService profileCommandService;
+    private final UserRepository userRepository;
+    private final Auth0ManagementService auth0ManagementService;
+    private final DeviceCommandService deviceCommandService;
+    private final SubscriptionCommandService subscriptionCommandService;
 
     IamContextFacade iamContextFacade;
     WaterSupplyRequestContextFacade waterSupplyRequestContextFacade;
@@ -88,9 +112,14 @@ public class ResidentController {
      * @param iamContextFacade IAM context facade for user info
      * @param waterSupplyRequestContextFacade Facade for water supply requests
      * @param profileQueryService Service for profile queries
+     * @param profileCommandService Service for profile commands
      * @param issueReportContextFacade Facade for issue reports
      * @param deviceContextFacade Facade for device context
      * @param subscriptionContextFacade Facade for subscription context
+     * @param userRepository Repository for user queries
+     * @param auth0ManagementService Service for Auth0 Management API
+     * @param deviceCommandService Service for device commands
+     * @param subscriptionCommandService Service for subscription commands
      */
     public ResidentController(
             ResidentCommandService residentCommandService,
@@ -101,9 +130,14 @@ public class ResidentController {
             IamContextFacade iamContextFacade,
             WaterSupplyRequestContextFacade waterSupplyRequestContextFacade,
             ProfileQueryService profileQueryService,
+            ProfileCommandService profileCommandService,
             IssueReportContextFacade issueReportContextFacade,
             DeviceContextFacade deviceContextFacade,
-            SubscriptionContextFacade subscriptionContextFacade
+            SubscriptionContextFacade subscriptionContextFacade,
+            UserRepository userRepository,
+            Auth0ManagementService auth0ManagementService,
+            DeviceCommandService deviceCommandService,
+            SubscriptionCommandService subscriptionCommandService
     ) {
         this.residentCommandService = residentCommandService;
         this.residentQueryService = residentQueryService;
@@ -112,9 +146,207 @@ public class ResidentController {
         this.iamContextFacade = iamContextFacade;
         this.waterSupplyRequestContextFacade = waterSupplyRequestContextFacade;
         this.profileQueryService = profileQueryService;
+        this.profileCommandService = profileCommandService;
         this.issueReportContextFacade = issueReportContextFacade;
         this.deviceContextFacade = deviceContextFacade;
         this.subscriptionContextFacade = subscriptionContextFacade;
+        this.userRepository = userRepository;
+        this.auth0ManagementService = auth0ManagementService;
+        this.deviceCommandService = deviceCommandService;
+        this.subscriptionCommandService = subscriptionCommandService;
+    }
+
+    /**
+     * Endpoint to create a new resident with complete ecosystem:
+     * - Creates Auth0 user account
+     * - Creates Resident record
+     * - Creates Profile with all data
+     * - Creates Subscription with waterTankSize
+     * - Auto-generates and assigns Device with unique serial number
+     * 
+     * Only accessible by PROVIDER role.
+     * Provider ID is automatically extracted from the authenticated user.
+     * Device serial number is auto-generated with format: IOT-{providerId}-{timestamp}
+     * All operations are atomic - if any step fails, everything is rolled back.
+     * 
+     * @param resource The request body containing complete resident data
+     * @return ResponseEntity with created entity IDs and status
+     */
+    @PostMapping("/complete")
+    @PreAuthorize("hasRole('ROLE_PROVIDER')")
+    @Transactional
+    public ResponseEntity<CompleteResidentResource> createCompleteResident(
+            @RequestBody CreateCompleteResidentResource resource) {
+        
+        // Get authenticated provider
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = userOptional.get().getId();
+        
+        // Verify provider exists
+        Optional<Provider> providerOptional = providerQueryService.findByUserId(userId);
+        if (providerOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new CompleteResidentResource(
+                            null, null, null, null, null, 
+                            resource.email(), 
+                            resource.firstName() + " " + resource.lastName(),
+                            resource.waterTankSize(),
+                            "Provider not found",
+                            null));  // No password reset URL
+        }
+        
+        Long providerId = providerOptional.get().getId();
+        
+        String auth0UserId = null;
+        Resident resident = null;
+        Profile profile = null;
+        Subscription subscription = null;
+        Device device = null;
+        
+        try {
+            // Step 1: Create user in Auth0
+            logger.info("🔄 Step 1: Creating user in Auth0...");
+            auth0UserId = auth0ManagementService.createResidentUser(
+                    resource.email(),
+                    resource.firstName(),
+                    resource.lastName(),
+                    providerId
+            );
+            logger.info("✅ Step 1 completed: Auth0 user ID: {}", auth0UserId);
+            
+            // Step 2: Create Resident in local DB (without userId yet)
+            logger.info("🔄 Step 2: Creating Resident in local DB...");
+            resident = new Resident(resource.firstName(), resource.lastName(), null, providerId);
+            resident = residentRepository.save(resident);
+            logger.info("✅ Step 2 completed: Resident ID: {}", resident.getId());
+            
+            // Step 3: Create Profile
+            logger.info("🔄 Step 3: Creating Profile...");
+            CreateProfileCommand profileCommand = new CreateProfileCommand(
+                    resource.firstName(),
+                    resource.lastName(),
+                    resource.email(),
+                    resource.direction(),
+                    resource.documentNumber(),
+                    resource.documentType(),
+                    resource.phone(),
+                    null // userId will be set on first login by interceptor
+            );
+            try {
+                Optional<Profile> profileOptional = profileCommandService.handle(profileCommand);
+                if (profileOptional.isEmpty()) {
+                    throw new RuntimeException("Failed to create profile");
+                }
+                profile = profileOptional.get();
+                logger.info("✅ Step 3 completed: Profile ID: {}", profile.getId());
+            } catch (Exception e) {
+                logger.error("❌ Step 3 FAILED: {}", e.getMessage(), e);
+                throw e;
+            }
+            
+            // Step 4: Create Device with auto-generated serial number
+            logger.info("🔄 Step 4: Creating Device...");
+            // Format: IOT-{providerId}-{timestamp}
+            String autoGeneratedSerial = String.format("IOT-%d-%d", 
+                    providerId, 
+                    System.currentTimeMillis());
+            
+            CreateDeviceCommand deviceCommand = new CreateDeviceCommand(
+                    autoGeneratedSerial,
+                    "ACTIVE",
+                    "TDS/HC-SR04",
+                    resident.getId()
+            );
+            Optional<Device> deviceOptional = deviceCommandService.handle(deviceCommand);
+            if (deviceOptional.isEmpty()) {
+                throw new RuntimeException("Failed to create device");
+            }
+            device = deviceOptional.get();
+            logger.info("✅ Step 4 completed: Device ID: {}, Serial: {}", device.getId(), autoGeneratedSerial);
+            
+            // Step 5: Create Subscription
+            logger.info("🔄 Step 5: Creating Subscription...");
+            subscription = new Subscription(
+                    resident.getId(),
+                    device.getId(),
+                    providerId,
+                    resource.waterTankSize().floatValue()
+            );
+            subscription = subscriptionContextFacade.saveSubscription(subscription);
+            logger.info("✅ Step 5 completed: Subscription ID: {}", subscription.getId());
+            
+            // Step 6: Link Auth0 user with resident ID in Auth0 app_metadata
+            logger.info("🔄 Step 6: Linking Resident ID to Auth0 user metadata...");
+            auth0ManagementService.linkResidentToUser(auth0UserId, resident.getId());
+            logger.info("✅ Step 6 completed: Resident linked to Auth0 user");
+            
+            // Step 7: Send password setup email to resident
+            logger.info("🔄 Step 7: Sending password setup email...");
+            String passwordResetUrl = auth0ManagementService.sendPasswordSetupEmail(auth0UserId);
+            logger.info("✅ Step 7 completed: Password setup email sent");
+            logger.info("🔗 Password reset URL: {}", passwordResetUrl);
+            
+            logger.info("🎉 All steps completed successfully!");
+            
+            // Return success response
+            return ResponseEntity.status(HttpStatus.CREATED).body(
+                    new CompleteResidentResource(
+                            resident.getId(),
+                            auth0UserId,
+                            profile.getId(),
+                            subscription.getId(),
+                            device.getId(),
+                            resource.email(),
+                            resource.firstName(),
+                            resource.lastName(),
+                            resource.waterTankSize(),
+                            passwordResetUrl  // Include the password reset URL
+                    )
+            );
+            
+        } catch (Auth0Exception e) {
+            // Auth0 user creation failed
+            logger.error("❌ Auth0 operation failed: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
+                    new CompleteResidentResource(
+                            null, null, null, null, null,
+                            resource.email(), 
+                            resource.firstName() + " " + resource.lastName(),
+                            resource.waterTankSize(),
+                            "Failed to create Auth0 user: " + e.getMessage(),
+                            null)  // No password reset URL on failure
+            );
+            
+        } catch (Exception e) {
+            // Local entity creation failed - cleanup Auth0 user if it was created
+            logger.error("❌ Resident creation failed: {}", e.getMessage(), e);
+            
+            if (auth0UserId != null) {
+                try {
+                    auth0ManagementService.deleteUser(auth0UserId);
+                    logger.info("🧹 Cleaned up Auth0 user: {}", auth0UserId);
+                } catch (Auth0Exception cleanupEx) {
+                    // Log cleanup failure but don't throw
+                    logger.error("⚠️ Failed to cleanup Auth0 user: {}", cleanupEx.getMessage());
+                }
+            }
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                    new CompleteResidentResource(
+                            null, null, null, null, null,
+                            resource.email(), 
+                            resource.firstName() + " " + resource.lastName(),
+                            resource.waterTankSize(),
+                            "Failed to create resident: " + e.getMessage(),
+                            null)  // No password reset URL on failure
+            );
+        }
     }
 
     /**
@@ -126,10 +358,15 @@ public class ResidentController {
     @PostMapping
     @PreAuthorize("hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
     public ResponseEntity<ResidentResource> createResident(@RequestBody CreateResidentResource resource) throws AccessDeniedException {
-        // Get authenticated user id
+        // Get authenticated user id from JWT
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        Long userId = userOptional.get().getId();
 
         // Convert the resource to a command, passing the authenticated user id
         CreateResidentCommand command = CreateResidentCommandFromResourceAssembler.toCommandFromResource(resource, userId);
@@ -213,8 +450,13 @@ public class ResidentController {
     @PreAuthorize("hasRole('ROLE_PROVIDER')")
     public List<WaterSupplyRequestResource> getWaterRequestsByResident(@PathVariable Long residentId) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found");
+        }
+        long userId = userOptional.get().getId();
 
         final Long providerId;
 
@@ -250,8 +492,13 @@ public class ResidentController {
     @PreAuthorize("hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
     public ResponseEntity<List<ResidentResource>> getResidentsForAuthenticatedProviderOrAdmin() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        long userId = userOptional.get().getId();
 
         boolean isAdmin = authentication.getAuthorities().stream()
             .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
@@ -276,11 +523,33 @@ public class ResidentController {
 
         List<ResidentResource> residentResources = residents.stream()
             .map(resident -> {
-                Optional<Profile> profileOptional = profileQueryService.handle(new GetProfileByUserIdQuery(resident.getUserId()));
-                String username = iamContextFacade.fetchUsernameByUserId(resident.getUserId());
-                return profileOptional
-                    .map(profile -> ResidentResourceFromEntityAssembler.toResourceFromEntityWithCredentials(resident, username, null, profile))
-                    .orElse(null);
+                // If userId is null, resident hasn't logged in yet - find profile by matching email
+                if (resident.getUserId() == null) {
+                    // For residents created but not yet logged in, we need to find their profile differently
+                    // Since we don't have direct access to email from Resident, we'll query all profiles
+                    // and match by firstName + lastName (this is a temporary solution)
+                    List<Profile> allProfiles = profileQueryService.handle(new GetAllProfilesQuery());
+                    Optional<Profile> matchingProfile = allProfiles.stream()
+                        .filter(p -> p.getFirstName().equals(resident.getFirstName()) 
+                                  && p.getLastName().equals(resident.getLastName())
+                                  && p.getUserId() == null)
+                        .findFirst();
+                    
+                    return matchingProfile
+                        .map(profile -> ResidentResourceFromEntityAssembler.toResourceFromEntityWithCredentials(
+                            resident, 
+                            "Pending first login", 
+                            null, 
+                            profile))
+                        .orElse(null);
+                } else {
+                    // Normal flow for logged-in residents
+                    Optional<Profile> profileOptional = profileQueryService.handle(new GetProfileByUserIdQuery(resident.getUserId()));
+                    String username = iamContextFacade.fetchUsernameByUserId(resident.getUserId());
+                    return profileOptional
+                        .map(profile -> ResidentResourceFromEntityAssembler.toResourceFromEntityWithCredentials(resident, username, null, profile))
+                        .orElse(null);
+                }
             })
             .filter(resource -> resource != null)
             .collect(Collectors.toList());
@@ -289,29 +558,82 @@ public class ResidentController {
     }
 
     /**
-     * Endpoint to get the authenticated resident's profile.
-     * Only accessible by RESIDENT role.
+     * Endpoint to get the resident profile for the currently authenticated user.
+     * Extracts user information from JWT token automatically.
+     * Accessible by RESIDENT role.
+     * @return ResponseEntity with the resident resource or NOT_FOUND if not found
+     */
+    @GetMapping("/me/profile")
+    @PreAuthorize("hasRole('ROLE_RESIDENT')")
+    public ResponseEntity<ResidentResource> getMyResidentProfile() {
+        // Obtener el usuario autenticado desde el JWT
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        
+        // Extraer el auth0Id del JWT (el "sub" claim)
+        String auth0Id = authentication.getName();
+        
+        // Buscar el usuario en la BD local por auth0Id
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        
+        long userId = userOptional.get().getId();
+
+        // Obtener el resident a partir del userId
+        List<Resident> residentList = residentQueryService.findByUserId(userId);
+        if (residentList.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        Resident resident = residentList.get(0);
+        
+        // Obtener el perfil asociado
+        Optional<Profile> profileOptional = profileQueryService.handle(new GetProfileByUserIdQuery(userId));
+        if (profileOptional.isEmpty()) {
+            return ResponseEntity.internalServerError().build();
+        }
+
+        // Obtener el username del contexto IAM
+        String username = iamContextFacade.fetchUsernameByUserId(userId);
+        
+        ResidentResource resource = ResidentResourceFromEntityAssembler
+                .toResourceFromEntityWithCredentials(resident, username, null, profileOptional.get());
+
+        return ResponseEntity.ok(resource);
+    }
+
+    /**
+     * Endpoint to get resident profile by resident ID.
+     * Accessible by PROVIDER, ADMIN, and RESIDENT roles.
+     * @param residentId The ID of the resident
      * @return ResponseEntity with the resident resource or NOT_FOUND if not found
      */
     @GetMapping("/{residentId}/profiles")
-    @PreAuthorize("hasRole('ROLE_RESIDENT')")
-    public ResponseEntity<ResidentResource> getAuthenticatedResident() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
-
-        List<Resident> residentOptional = residentQueryService.findByUserId(userId);
+    @PreAuthorize("hasRole('ROLE_RESIDENT') or hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ResidentResource> getResidentProfileById(@PathVariable Long residentId) {
+        // Buscar el resident por su ID
+        Optional<Resident> residentOptional = residentQueryService.findById(residentId);
+        
         if (residentOptional.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
 
-        Resident resident = residentOptional.get(0);
+        Resident resident = residentOptional.get();
+        long userId = resident.getUserId();
+
+        // Obtener el perfil asociado
+        Optional<Profile> profileOptional = profileQueryService.handle(new GetProfileByUserIdQuery(userId));
+        if (profileOptional.isEmpty()) {
+            return ResponseEntity.internalServerError().build();
+        }
+
+        // Obtener el username del contexto IAM
         String username = iamContextFacade.fetchUsernameByUserId(userId);
-        List<Profile> profiles = profileQueryService.handle(new GetProfileByUserIdQuery(userId))
-                .stream()
-                .collect(Collectors.toList());
+        
         ResidentResource resource = ResidentResourceFromEntityAssembler
-                .toResourceFromEntityWithCredentials(resident, username, null, profiles.get(0));
+                .toResourceFromEntityWithCredentials(resident, username, null, profileOptional.get());
 
         return ResponseEntity.ok(resource);
     }
@@ -348,8 +670,13 @@ public class ResidentController {
     @PreAuthorize("hasRole('ROLE_RESIDENT')")
     public ResponseEntity<ResidentResource> updateResident(@RequestBody UpdateResidentResource resource) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        long userId = userOptional.get().getId();
 
         UpdateResidentCommand updateResidentCommand = UpdateResidentCommandFromResource.toCommandFromResource(resource, userId);
         Optional<Resident> updatedResidentOptional = residentCommandService.handle(updateResidentCommand);

@@ -1,6 +1,6 @@
 package com.ironcoders.aquaconectabackend.subcriptions.interfaces.rest.transform;
 
-import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
+import com.ironcoders.aquaconectabackend.iam.infrastructure.persistence.jpa.repositories.UserRepository;
 import com.ironcoders.aquaconectabackend.profiles.interfaces.acl.ProviderContextFacade.ProviderContextFacade;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.aggregates.Subscription;
 import com.ironcoders.aquaconectabackend.subcriptions.domain.model.commands.CreateAdditionalSubscriptionCommand;
@@ -35,11 +35,13 @@ public class SubscriptionController {
     private final SubscriptionCommandService subscriptionCommandService;
     private final SubscriptionQueryService subscriptionQueryService;
     private final ProviderContextFacade providerContextFacade;
+    private final UserRepository userRepository;
 
-    public SubscriptionController(SubscriptionCommandService subscriptionCommandService, SubscriptionQueryService subscriptionQueryService, ProviderContextFacade providerContextFacade) {
+    public SubscriptionController(SubscriptionCommandService subscriptionCommandService, SubscriptionQueryService subscriptionQueryService, ProviderContextFacade providerContextFacade, UserRepository userRepository) {
         this.subscriptionCommandService = subscriptionCommandService;
         this.subscriptionQueryService = subscriptionQueryService;
         this.providerContextFacade = providerContextFacade;
+        this.userRepository = userRepository;
     }
 
     @PostMapping
@@ -70,8 +72,13 @@ public class SubscriptionController {
             subscriptions = subscriptionQueryService.handle(new GetAllSubscriptions());
         } else {
             // Solo devuelve las suscripciones del provider autenticado
-            UserDetailsImpl userDetails = (UserDetailsImpl) auth.getPrincipal();
-            Long userId = userDetails.getId(); // Asume que tienes este método en tu UserDetailsImpl
+            String auth0Id = auth.getName();
+            
+            var userOptional = userRepository.findByAuth0Id(auth0Id);
+            if (userOptional.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+            Long userId = userOptional.get().getId();
 
             // Obtiene el providerId del usuario autenticado
             Long providerId = providerContextFacade.fetchProviderByUserId(userId)

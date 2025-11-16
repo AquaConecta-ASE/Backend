@@ -79,7 +79,17 @@ public class ResidentCommandServiceImpl implements ResidentCommandService {
         String password = command.documentNumber();
         List<String> roles = List.of("ROLE_RESIDENT");
 
-        Long newUserId = iamContextFacade.createUser(username, password, roles);
+        // 🚀 Crear usuario con Auth0 integration
+        Long newUserId = iamContextFacade.createUserWithAuth0(
+            username, 
+            password, 
+            command.email(),
+            command.firstName(),
+            command.lastName(),
+            roles,
+            provider.getId()  // providerId for Auth0 app_metadata
+        );
+        
         if (newUserId == 0L) {
             throw new IllegalArgumentException("Could not create resident user.");
         }

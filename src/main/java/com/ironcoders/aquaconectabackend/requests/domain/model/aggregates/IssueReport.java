@@ -6,11 +6,9 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import lombok.Getter;
 
 import java.time.LocalDateTime;
 
-@Getter
 @Entity
 public class IssueReport extends AuditableAbstractAggregateRoot<IssueReport> {
 
@@ -55,13 +53,33 @@ public class IssueReport extends AuditableAbstractAggregateRoot<IssueReport> {
         return this;
     }
 
+    // Explicit getters
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 
-    //    public EventAggregate(CreateEventCommand command){
-    //    this.eventType= command.eventType();
-    //    this.qualityValue = command.qualityValue();
-    //    this.levelValue = command.levelValue();
-    //    this.sensorId = command.sensorId();
-   // }
-    //
-    
+    public Long getResidentId() {
+        return residentId;
+    }
+
+    public Long getProviderId() {
+        return providerId;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public String getEmissionDate() {
+        return emissionDate;
+    }
+
+    public String getStatus() {
+        return status;
+    }
 }

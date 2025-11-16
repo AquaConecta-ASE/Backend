@@ -5,9 +5,7 @@ import com.ironcoders.aquaconectabackend.shared.domain.model.aggregates.Auditabl
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
-import lombok.Getter;
 
-@Getter
 @Entity
 public class Event extends AuditableAbstractAggregateRoot<Event> {
 
@@ -39,5 +37,25 @@ public class Event extends AuditableAbstractAggregateRoot<Event> {
         this.sensorId = command.sensorId();
     }
 
+    // Explicit getters
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 
+    public String getEventType() {
+        return eventType;
+    }
+
+    public String getQualityValue() {
+        return qualityValue;
+    }
+
+    public String getLevelValue() {
+        return levelValue;
+    }
+
+    public Long getSensorId() {
+        return sensorId;
+    }
 }

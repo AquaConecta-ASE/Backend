@@ -6,21 +6,19 @@ import com.ironcoders.aquaconectabackend.shared.domain.model.aggregates.Auditabl
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import lombok.Getter;
 
-@Getter
 @Entity
 public class Resident extends AuditableAbstractAggregateRoot<Resident> {
     @Column(nullable = false)
     private String firstName;
     @Column(nullable = false)
     private String lastName;
-    @Column(nullable = false)
+    @Column(nullable = true) // Can be null until first login
     private Long userId;
     @Column(nullable = false)
     private Long providerId;
 
-    public Resident(String firstName, String ruc, Long userId, Long providerId) {
+    public Resident(String firstName, String lastName, Long userId, Long providerId) {
         this.firstName = firstName;
         this.lastName = lastName;
         this.userId = userId;
@@ -45,7 +43,29 @@ public class Resident extends AuditableAbstractAggregateRoot<Resident> {
         this.lastName = command.lastName();
     }
 
+    // Explicit getters (Lombok not working properly)
+    public String getFirstName() {
+        return firstName;
+    }
 
+    public String getLastName() {
+        return lastName;
+    }
 
+    public Long getUserId() {
+        return userId;
+    }
 
+    public Long getProviderId() {
+        return providerId;
+    }
+    
+    public void setUserId(Long userId) {
+        this.userId = userId;
+    }
+
+    @Override
+    public Long getId() {
+        return super.getId();
+    }
 }

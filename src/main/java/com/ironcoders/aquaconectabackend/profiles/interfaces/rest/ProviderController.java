@@ -1,7 +1,7 @@
 package com.ironcoders.aquaconectabackend.profiles.interfaces.rest;
 
 
-import com.ironcoders.aquaconectabackend.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
+import com.ironcoders.aquaconectabackend.iam.infrastructure.persistence.jpa.repositories.UserRepository;
 import com.ironcoders.aquaconectabackend.iam.interfaces.acl.IamContextFacade;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Profile;
 import com.ironcoders.aquaconectabackend.profiles.domain.model.aggregates.Provider;
@@ -52,7 +52,8 @@ public class ProviderController {
     private final ProfileRepository profileRepository;
     private final ProviderRepository providerRepository;
     private final ResidentQueryService residentQueryService;
-    IamContextFacade iamContextFacade;
+    private final IamContextFacade iamContextFacade;
+    private final UserRepository userRepository;
 
     /**
      * Constructor for dependency injection.
@@ -62,14 +63,16 @@ public class ProviderController {
      * @param providerRepository Repository for providers
      * @param residentQueryService Service for resident queries
      * @param iamContextFacade IAM context facade for user info
+     * @param userRepository Repository for user queries
      */
-    public ProviderController(ProviderCommandService providerCommandService, ProviderQueryService providerQueryService, ProfileRepository profileRepository, ProviderRepository providerRepository , ResidentQueryService residentQueryService, IamContextFacade iamContextFacade) {
+    public ProviderController(ProviderCommandService providerCommandService, ProviderQueryService providerQueryService, ProfileRepository profileRepository, ProviderRepository providerRepository , ResidentQueryService residentQueryService, IamContextFacade iamContextFacade, UserRepository userRepository) {
         this.providerCommandService = providerCommandService;
         this.providerQueryService = providerQueryService;
         this.profileRepository = profileRepository;
         this.providerRepository = providerRepository;
         this.residentQueryService = residentQueryService;
         this.iamContextFacade = iamContextFacade;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -83,8 +86,13 @@ public class ProviderController {
     public ResponseEntity<?> createProfile(@RequestBody CreateProviderResource resource) {
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        long userId = userOptional.get().getId();
 
         // ✅ Validar si ya existe un perfil para el usuario autenticado
         List<Profile> profiles = profileRepository.findByUserId(userId);
@@ -123,8 +131,13 @@ public class ProviderController {
     @PreAuthorize("hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
     public ResponseEntity<ProviderResource> updateProvider(@RequestBody UpdateProviderResource resource) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        long userId = userDetails.getId();
+        String auth0Id = authentication.getName();
+        
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        long userId = userOptional.get().getId();
 
         UpdateProviderCommand updateProviderCommand = UpdateProviderCommandFromResource.toCommandFromResource(resource, userId);
         Optional<Provider> updatedProviderOptional = providerCommandService.handle(updateProviderCommand);
@@ -197,16 +210,28 @@ public class ProviderController {
     }
 
     /**
-     * Endpoint to get the provider details for the authenticated provider.
-     * Only accessible by PROVIDER role.
+     * Endpoint to get the provider profile for the currently authenticated user.
+     * Extracts user information from JWT token automatically.
+     * Accessible by PROVIDER and ADMIN roles.
      * @return ResponseEntity with the provider resource or NOT_FOUND if not found
      */
-    @GetMapping("/{providerId}/profiles")
-    @PreAuthorize("hasRole('ROLE_PROVIDER')")
-    public ResponseEntity<ProviderResource> getMyProviderDetails() {
+    @GetMapping("/me/profile")
+    @PreAuthorize("hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<ProviderResource> getMyProviderProfile() {
+        // Obtener el usuario autenticado desde el JWT
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
-        Long userId = userDetails.getId();
+        
+        // Extraer el auth0Id del JWT (el "sub" claim)
+        String auth0Id = authentication.getName();
+        
+        // Buscar el usuario en la BD local por auth0Id
+        var userOptional = userRepository.findByAuth0Id(auth0Id);
+        
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        
+        Long userId = userOptional.get().getId();
 
         // Obtener el proveedor a partir del userId
         var query = new GetProviderByUserIdQuery(userId);
@@ -221,7 +246,35 @@ public class ProviderController {
         // Obtener el perfil asociado
         var profileOptional = profileRepository.findByUserId(provider.getUserId());
         if (profileOptional.isEmpty()) {
-            return ResponseEntity.internalServerError().build(); // No debería ocurrir
+            return ResponseEntity.internalServerError().build();
+        }
+
+        var resource = ProviderResourceFromEntityAssembler.toResourceFromEntities(provider, profileOptional.get(0));
+        return ResponseEntity.ok(resource);
+    }
+
+    /**
+     * Endpoint to get provider profile by provider ID.
+     * Accessible by PROVIDER, ADMIN, and RESIDENT roles.
+     * @param providerId The ID of the provider
+     * @return ResponseEntity with the provider resource or NOT_FOUND if not found
+     */
+    @GetMapping("/{providerId}/profiles")
+    @PreAuthorize("hasRole('ROLE_PROVIDER') or hasRole('ROLE_ADMIN') or hasRole('ROLE_RESIDENT')")
+    public ResponseEntity<ProviderResource> getProviderProfileById(@PathVariable Long providerId) {
+        // Buscar el proveedor por su ID
+        var providerOptional = providerRepository.findById(providerId);
+
+        if (providerOptional.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        var provider = providerOptional.get();
+
+        // Obtener el perfil asociado al usuario del proveedor
+        var profileOptional = profileRepository.findByUserId(provider.getUserId());
+        if (profileOptional.isEmpty()) {
+            return ResponseEntity.internalServerError().build();
         }
 
         var resource = ProviderResourceFromEntityAssembler.toResourceFromEntities(provider, profileOptional.get(0));

@@ -19,6 +19,8 @@ import com.ironcoders.aquaconectabackend.monitoring.interfaces.rest.resources.De
 import com.ironcoders.aquaconectabackend.monitoring.interfaces.rest.resources.EventResource;
 import com.ironcoders.aquaconectabackend.monitoring.interfaces.rest.transform.DeviceResourceFromEntityAssembler;
 import com.ironcoders.aquaconectabackend.monitoring.interfaces.rest.transform.EventResourceFromEntityAssembler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -32,6 +34,8 @@ import java.util.stream.Collectors;
 @Tag(name = "Devices", description = "Device Management endpoints")
 @PreAuthorize("isAuthenticated()")
 public class DeviceController {
+    
+    private static final Logger LOGGER = LoggerFactory.getLogger(DeviceController.class);
 
     private final DeviceQueryService deviceQueryService;
     private final EventQueryService eventQueryService;
@@ -66,10 +70,18 @@ public class DeviceController {
      */
     @GetMapping("/{id}/events")
     public ResponseEntity<List<EventResource>> getEventsBySensorId(@PathVariable Long id) {
+        LOGGER.info("Obteniendo eventos para device ID: {}", id);
+        
         var events = eventQueryService.handle(new GetAllEventsBySensorId(id));
+        LOGGER.info("Eventos encontrados: {}", events.size());
+        
         var resources = events.stream()
                 .map(EventResourceFromEntityAssembler::toResourceFromEntity)
                 .collect(Collectors.toList());
+        
+        LOGGER.info("Recursos creados: {}", resources.size());
+        LOGGER.info("Devolviendo respuesta 200 OK con {} eventos", resources.size());
+        
         return ResponseEntity.ok(resources);
     }
 }

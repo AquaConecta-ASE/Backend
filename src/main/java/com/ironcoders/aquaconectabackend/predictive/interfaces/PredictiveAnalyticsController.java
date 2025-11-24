@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping(value = "/api/v1/predictive-analytics", produces = MediaType.APPLICATION_JSON_VALUE)
-@Tag(name = "Predictive Analytics", description = "Water Consumption Prediction and Analytics Endpoints")
+@Tag(name = "Predictive Analytics")
 //@PreAuthorize("isAuthenticated()")
 public class PredictiveAnalyticsController {
 

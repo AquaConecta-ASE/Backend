@@ -10,14 +10,19 @@ import com.ironcoders.aquaconectabackend.profiles.interfaces.rest.resources.Resi
 public class ResidentResourceFromEntityAssembler {
 
     // Caso básico sin credenciales
-    public static ResidentResource toResourceFromEntity(Resident entity,Profile profile) {
+    public static ResidentResource toResourceFromEntity(Resident entity, Profile profile) {
+        // Handle null profile (resident hasn't logged in yet)
+        String phone = profile != null ? profile.getPhone() : null;
+        String direction = profile != null ? profile.getDirection() : null;
+        String documentNumber = profile != null ? profile.getDocumentNumber() : null;
+        
         return new ResidentResource(
                 entity.getId(),
                 entity.getFirstName(),
                 entity.getLastName(),
-                profile.getPhone(),
-                profile.getDirection(),
-                profile.getDocumentNumber(),
+                phone,
+                direction,
+                documentNumber,
                 entity.getProviderId(),
                 entity.getUserId(),
                 null,     // username vacío

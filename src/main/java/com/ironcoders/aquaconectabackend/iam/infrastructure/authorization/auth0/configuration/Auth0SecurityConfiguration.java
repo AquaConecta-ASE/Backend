@@ -13,7 +13,6 @@ import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.cors.CorsConfiguration;
 
 import java.util.List;
 
@@ -30,14 +29,9 @@ public class Auth0SecurityConfiguration {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        // CORS configuration
-        http.cors(configurer -> configurer.configurationSource(request -> {
-            var cors = new CorsConfiguration();
-            cors.setAllowedOrigins(List.of("*"));
-            cors.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
-            cors.setAllowedHeaders(List.of("*"));
-            return cors;
-        }));
+        // ✅ CORS deshabilitado - El BFF Gateway (puerto 8081) maneja CORS
+        // El backend solo recibe requests del gateway (localhost:8081)
+        http.cors(cors -> cors.disable());
 
         // Disable CSRF (stateless API)
         http.csrf(csrf -> csrf.disable());

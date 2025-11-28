@@ -15,15 +15,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
         this.auth0UserSyncInterceptor = auth0UserSyncInterceptor;
     }
 
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOrigins("http://localhost:4200", "http://localhost:3000")
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
-                .allowedHeaders("*")
-                .allowCredentials(true)
-                .maxAge(3600);
-    }
+    // ✅ CORS COMPLETAMENTE ELIMINADO
+    // El BFF Gateway (puerto 8081) maneja 100% de CORS
+    // Este backend NO debe enviar ningún header CORS
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {

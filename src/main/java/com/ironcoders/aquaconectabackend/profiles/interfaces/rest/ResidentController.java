@@ -652,6 +652,14 @@ public class ResidentController {
             return ResponseEntity.notFound().build();
         }
         Resident resident = residentOptional.get();
+        
+        // If resident has no userId yet (hasn't logged in), look up profile won't work
+        // Return resident data with null profile
+        if (resident.getUserId() == null) {
+            ResidentResource residentResource = ResidentResourceFromEntityAssembler.toResourceFromEntity(resident, null);
+            return ResponseEntity.ok(List.of(residentResource));
+        }
+        
         Optional<Profile> profiles = profileQueryService.handle(new GetProfileByUserIdQuery(resident.getUserId()));
         if (profiles.isEmpty()) {
             return ResponseEntity.notFound().build();

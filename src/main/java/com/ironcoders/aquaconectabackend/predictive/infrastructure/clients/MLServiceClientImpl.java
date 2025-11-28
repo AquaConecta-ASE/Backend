@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
 public class MLServiceClientImpl  implements MLServiceClient{
      private static final Logger log = LoggerFactory.getLogger(MLServiceClientImpl.class);
 
-    @Value("${ml.service.url:http://localhost:5000}")
+    @Value("${ml.service.url:https://ml-service-t46u.onrender.com}")
     private String mlServiceUrl;
 
     @Value("${ml.service.timeout:30000}")

@@ -21,10 +21,9 @@
     <description>aquaconecta-platform</description>
 
     <properties>
-        <!-- Match Maven/JAVA_HOME runtime (Maven reports Java 22). If you prefer to compile with Java 23,
-             point your MAVEN/JAVA_HOME to a JDK 23 installation instead of changing the pom. -->
-        <java.version>22</java.version>
-        <maven.compiler.release>22</maven.compiler.release>
+        <!-- Temporarily using Java 21 for Azure App Service compatibility -->
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
     </properties>
 
     <dependencies>
@@ -175,8 +174,37 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
-                    <!-- Si conoces la clase con el método main, reemplaza abajo -->
-                    <!-- <mainClass>com.acme.center.Application</mainClass> -->
+                    <mainClass>com.ironcoders.aquaconectabackend.AquaconectaBackendApplication</mainClass>
+                </configuration>
+            </plugin>
+
+            <!-- Plugin de Azure para despliegue -->
+            <plugin>
+                <groupId>com.microsoft.azure</groupId>
+                <artifactId>azure-webapp-maven-plugin</artifactId>
+                <version>2.12.0</version>
+                <configuration>
+                    <schemaVersion>v2</schemaVersion>
+                    <subscriptionId></subscriptionId>
+                    <resourceGroup>aquaconecta-rg</resourceGroup>
+                    <appName>aquaconecta-backend-app</appName>
+                    <region>eastus</region>
+                    <pricingTier>B1</pricingTier>
+                    <runtime>
+                        <os>Linux</os>
+                        <javaVersion>Java 22</javaVersion>
+                        <webContainer>Java SE</webContainer>
+                    </runtime>
+                    <deployment>
+                        <resources>
+                            <resource>
+                                <directory>${project.basedir}/target</directory>
+                                <includes>
+                                    <include>*.jar</include>
+                                </includes>
+                            </resource>
+                        </resources>
+                    </deployment>
                 </configuration>
             </plugin>
         </plugins>

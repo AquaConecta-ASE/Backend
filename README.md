@@ -1,4 +1,43 @@
-# AquaConecta Backend API Documentation
+# AquaConecta Backend API
+
+[![Java](https://img.shields.io/badge/Java-22-orange.svg)](https://openjdk.org/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.6-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Azure](https://img.shields.io/badge/Deployed%20on-Azure-blue.svg)](https://azure.microsoft.com)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Backend API para la plataforma AquaConecta - Sistema de gestión inteligente de agua con análisis predictivo.
+
+## 🌐 URLs de Producción
+
+- **API Base URL:** `https://aquaconecta-backend-app.azurewebsites.net`
+- **Swagger UI:** `https://aquaconecta-backend-app.azurewebsites.net/swagger-ui/index.html`
+- **Health Check:** `https://aquaconecta-backend-app.azurewebsites.net/actuator/health`
+
+## 🚀 Despliegue Rápido
+
+### Opción 1: Script Automatizado (Recomendado)
+```powershell
+.\deploy-azure.ps1
+```
+
+### Opción 2: Maven Plugin
+```powershell
+mvn clean package -DskipTests
+mvn azure-webapp:deploy
+```
+
+Ver [Guía de Despliegue Completa](./AZURE_DEPLOYMENT_GUIDE.md) para más detalles.
+
+## 📚 Documentación de Despliegue
+
+- **[Resumen Ejecutivo](./DEPLOYMENT_SUMMARY.md)** - Inicio rápido en 3 pasos
+- **[Guía Completa de Azure](./AZURE_DEPLOYMENT_GUIDE.md)** - Documentación detallada
+- **[Referencia Rápida](./AZURE_QUICK_REFERENCE.md)** - Comandos útiles
+- **[Checklist](./DEPLOYMENT_CHECKLIST.md)** - Lista de verificación completa
+
+---
+
+# API Documentation
 
 This document provides a comprehensive overview of all REST API endpoints, their roles, and security restrictions for the AquaConecta backend project. All endpoints require authentication unless otherwise specified.
 

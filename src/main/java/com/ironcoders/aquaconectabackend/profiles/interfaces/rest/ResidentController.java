@@ -572,22 +572,31 @@ public class ResidentController {
         // Extraer el auth0Id del JWT (el "sub" claim)
         String auth0Id = authentication.getName();
         
+        logger.info("🔍 [/me/profile] Auth0 ID from JWT: {}", auth0Id);
+        
         // Buscar el usuario en la BD local por auth0Id
         var userOptional = userRepository.findByAuth0Id(auth0Id);
         
         if (userOptional.isEmpty()) {
+            logger.error("❌ [/me/profile] No user found in DB with auth0Id: {}", auth0Id);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         
         long userId = userOptional.get().getId();
+        logger.info("✅ [/me/profile] Found User ID: {} for auth0Id: {}", userId, auth0Id);
 
         // Obtener el resident a partir del userId
         List<Resident> residentList = residentQueryService.findByUserId(userId);
+        logger.info("🔍 [/me/profile] Residents found for userId {}: {}", userId, residentList.size());
+        
         if (residentList.isEmpty()) {
+            logger.warn("⚠️ [/me/profile] No resident found for userId: {}", userId);
             return ResponseEntity.notFound().build();
         }
 
         Resident resident = residentList.get(0);
+        logger.info("✅ [/me/profile] Returning Resident ID: {} ({} {})", 
+            resident.getId(), resident.getFirstName(), resident.getLastName());
         
         // Obtener el perfil asociado
         Optional<Profile> profileOptional = profileQueryService.handle(new GetProfileByUserIdQuery(userId));
